@@ -187,6 +187,11 @@ export async function validate(options?: DockerOptions): Promise<CommandResult> 
   return compose(['config', '--quiet'], options)
 }
 
+/** Every container's published ports, for the preflight's port check. */
+export async function publishedPorts(): Promise<CommandResult> {
+  return run('docker', ['ps', '--format', '{{.Names}}\t{{.Ports}}'])
+}
+
 /** Compose v2 present? Its absence is a preflight failure with its own name. */
 export async function composeVersion(): Promise<CommandResult> {
   return run('docker', ['compose', 'version', '--short'])

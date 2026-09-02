@@ -1,6 +1,14 @@
 import * as docker from '../docker/index.js'
 import { buildPlan, writePlan } from '../plan.js'
-import { loadState, saveState, type EngineState } from '../state/store.js'
+import { REGISTRY, storedRegistryAuth } from '../registry.js'
+import {
+  ensureGeneratedSecrets,
+  loadSecrets,
+  loadState,
+  saveSecrets,
+  saveState,
+  type EngineState,
+} from '../state/store.js'
 
 /**
  * The deploy job: render → validate → pull → apply, one at a time, watchable.
@@ -51,6 +59,17 @@ export class JobRunner {
   private async run(job: DeployJob): Promise<void> {
     const onOutput = (chunk: string) => this.append(job, chunk)
     try {
+      // Nobody types the generated secrets, so nothing should have to ask for
+      // them either: the first deploy creates whichever are missing. Existing
+      // values are never touched — regenerating DB_PASSWORD orphans a
+      // database. (Found on the first real box: the browser flow had no step
+      // that generated them, because only the CLI ever had.)
+      const { secrets, created } = ensureGeneratedSecrets(loadSecrets(this.dir))
+      if (created.length > 0) {
+        saveSecrets(secrets, this.dir)
+        this.append(job, `Generated: ${created.join(', ')}. Values are not shown.\n`)
+      }
+
       this.append(job, '── Rendering ──\n')
       const plan = await buildPlan(this.dir)
       if (!plan.ok) {
@@ -73,6 +92,11 @@ export class JobRunner {
       // changed nothing, which is what makes an update safe to attempt.
       job.step = 'pull'
       this.append(job, '\n── Downloading images ──\n')
+      // The daemon's login is per-container-filesystem and this container is
+      // recreated on every engine update; the stored credential is the truth,
+      // so it is re-asserted before every pull rather than assumed to persist.
+      const auth = storedRegistryAuth(this.dir)
+      if (auth) await docker.login(REGISTRY, auth.username, auth.token)
       const pulled = await docker.pull({ composeFile: path, onOutput })
       if (pulled.code !== 0) {
         this.append(job, '\nDownload failed. Nothing running has been touched.\n')

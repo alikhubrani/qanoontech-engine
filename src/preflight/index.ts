@@ -1,5 +1,4 @@
 import { statfs } from 'node:fs/promises'
-import { createServer } from 'node:net'
 import { totalmem } from 'node:os'
 import { CATALOGUE } from '../catalogue/index.js'
 import * as docker from '../docker/index.js'
@@ -131,7 +130,9 @@ export async function runPreflight(dir = stateDir()): Promise<CheckResult[]> {
   )
 
   // -- network --------------------------------------------------------------
-  results.push(await checkPort(state.settings.bindAddress, state.settings.appPort))
+  if (daemon.code === 0) {
+    results.push(await checkPort(state.settings.bindAddress, state.settings.appPort))
+  }
 
   // -- registry, which doubles as the clock source --------------------------
   const auth = storedRegistryAuth(dir)
@@ -200,33 +201,43 @@ export async function runPreflight(dir = stateDir()): Promise<CheckResult[]> {
   return results
 }
 
-function checkPort(address: string, port: number): Promise<CheckResult> {
-  return new Promise((resolve) => {
-    const server = createServer()
-    server.once('error', (error) => {
-      const code = (error as NodeJS.ErrnoException).code
-      resolve({
-        id: 'port',
-        title: 'Application port',
-        status: code === 'EADDRINUSE' ? 'warn' : 'fail',
-        detail:
-          code === 'EADDRINUSE'
-            ? `${address}:${port} is already in use — fine if that is this deployment's own proxy, wrong otherwise.`
-            : `Cannot bind ${address}:${port} (${code}). Is the address one of this box's own?`,
-      })
-    })
-    server.once('listening', () => {
-      server.close(() =>
-        resolve({
-          id: 'port',
-          title: 'Application port',
-          status: 'pass',
-          detail: `${address}:${port} is free.`,
-        }),
-      )
-    })
-    server.listen(port, address)
-  })
+/**
+ * The port check asks the daemon, not the local network stack — the engine
+ * runs inside a container, where binding a test socket answers a question
+ * about the wrong namespace. (Found on the first real box: the engine's own
+ * listener made the host port read as taken.) The daemon sees every
+ * published port; what it cannot see is a host process outside Docker, and
+ * the pass message says so instead of overclaiming.
+ */
+async function checkPort(address: string, port: number): Promise<CheckResult> {
+  const listing = await docker.publishedPorts()
+  if (listing.code !== 0) {
+    return { id: 'port', title: 'Application port', status: 'warn', detail: 'Could not list published ports.' }
+  }
+  const needle = `:${port}->`
+  const holder = listing.stdout
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .find(([, ports]) => ports?.includes(needle))
+
+  if (!holder) {
+    return {
+      id: 'port',
+      title: 'Application port',
+      status: 'pass',
+      detail: `${address}:${port} is not published by any container. A host process outside Docker would not show here.`,
+    }
+  }
+  const [name] = holder
+  const ours = name?.startsWith('qanoontech')
+  return {
+    id: 'port',
+    title: 'Application port',
+    status: ours ? 'pass' : 'fail',
+    detail: ours
+      ? `${address}:${port} is published by this deployment's own '${name}'.`
+      : `${address}:${port} is already published by '${name}', which is not part of this deployment.`,
+  }
 }
 
 function parseMemoryGb(limit: string): number {
