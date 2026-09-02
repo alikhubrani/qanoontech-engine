@@ -102,13 +102,15 @@ export async function signLicence(claims: LicenceClaims, privateKey: KeyObject):
 /**
  * The production public key, compiled into the image.
  *
- * PLACEHOLDER — a key generated for development, whose private half is kept
- * nowhere. It must be replaced with the real issuing key, from our
- * infrastructure, before the first licensed release; the release checklist
- * carries that step. Until then every real-world licence check fails closed.
+ * DEVELOPMENT KEY — its private half exists only on the maintainer's machine,
+ * for signing test licences against real boxes. It must be replaced with the
+ * real issuing key, from our infrastructure, before the first licensed
+ * release; the release checklist carries that step. A licence signed with the
+ * real key does not verify against this build, and vice versa — which is the
+ * point.
  */
 const PRODUCTION_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAXWN9SlXLdUuCalKlMV2kjdnVgLz0K+fFlFPo8fQY18I=
+MCowBQYDK2VwAyEAoUYE9cdeOPwlIx9vXldg02C9phZo+oXbu686D1aJHcA=
 -----END PUBLIC KEY-----`
 
 export function productionPublicKey(): KeyObject {
