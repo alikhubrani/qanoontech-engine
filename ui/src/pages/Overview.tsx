@@ -1,8 +1,17 @@
-import { Badge, Card, ErrorNote } from '../components'
 import { auditEventLabels, S } from '../strings'
-import type { Overview as OverviewData } from '../api'
+import type { LicenceInfo, Overview as OverviewData } from '../api'
+import { ErrorNote, StatusBadge } from '@/components/status'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
-export function Overview({ data }: { data: OverviewData }) {
+export function Overview({ data, licence }: { data: OverviewData; licence: LicenceInfo | null }) {
   const unhealthy = data.services.filter(
     (service) => service.state === 'running' && service.health === 'unhealthy',
   )
@@ -11,17 +20,16 @@ export function Overview({ data }: { data: OverviewData }) {
   )
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-brand-dark">{S.overviewTitle}</h1>
-
+    <div className="mx-auto max-w-5xl space-y-4">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat label={S.versionLabel} value={data.version} />
         <Stat label={S.engineVersionLabel} value={data.engineVersion} />
         <Stat label={S.addressLabel} value={`${data.bindAddress}:${data.appPort}`} />
         <Stat
-          label="Modules"
-          value={String(data.modulesOn.length)}
-          hint={data.modulesOn.join(', ')}
+          label={S.navLicence}
+          value={licence?.standing ?? '—'}
+          hint={licence?.claims ? `${S.licenceExpires} ${new Date(licence.claims.expiresAt).toLocaleDateString()}` : undefined}
+          tone={licence?.standing === 'ok' ? 'ok' : licence?.standing === 'grace' ? 'warn' : 'bad'}
         />
       </div>
 
@@ -32,60 +40,102 @@ export function Overview({ data }: { data: OverviewData }) {
       )}
 
       {!data.plan.deployable && (
-        <Card title={S.planProblemsTitle}>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-bad">
-            {data.plan.problems.map((problem) => (
-              <li key={problem}>{problem}</li>
-            ))}
-          </ul>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">{S.planProblemsTitle}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-bad">
+              {data.plan.problems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </CardContent>
         </Card>
       )}
 
-      <Card title={S.navServices}>
-        {unhealthy.length === 0 && down.length === 0 && !data.dockerError ? (
-          <p className="text-sm text-ok">{S.servicesHealthy}</p>
-        ) : (
-          <ul className="space-y-1 text-sm">
-            {[...down, ...unhealthy].map((service) => (
-              <li key={service.id} className="flex items-center gap-2">
-                <Badge tone="bad">{service.state === 'running' ? service.health : service.state}</Badge>
-                <span className="text-slate-700">{service.title}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">{S.navServices}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {unhealthy.length === 0 && down.length === 0 && !data.dockerError ? (
+            <p className="text-sm text-ok">{S.servicesHealthy}</p>
+          ) : (
+            <ul className="space-y-1.5 text-sm">
+              {[...down, ...unhealthy].map((service) => (
+                <li key={service.id} className="flex items-center gap-2">
+                  <StatusBadge tone="bad">
+                    {service.state === 'running' ? service.health : service.state}
+                  </StatusBadge>
+                  <span>{service.title}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
 
-      <Card title={S.auditTitle}>
-        {data.audit.length === 0 ? (
-          <p className="text-sm text-slate-400">{S.auditEmpty}</p>
-        ) : (
-          <ul className="space-y-1.5 text-sm">
-            {data.audit.map((entry, index) => (
-              <li key={index} className="flex items-baseline justify-between gap-4">
-                <span className="text-slate-700">
-                  {auditEventLabels[entry.event] ?? entry.event}
-                  {entry.detail && <span className="text-slate-400"> — {entry.detail}</span>}
-                </span>
-                <time className="shrink-0 text-xs text-slate-400">
-                  {new Date(entry.at).toLocaleString()}
-                </time>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">{S.auditTitle}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.audit.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{S.auditEmpty}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{S.auditWhat}</TableHead>
+                  <TableHead className="w-44 text-right">{S.auditWhen}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.audit.map((entry, index) => (
+                  <TableRow key={index}>
+                    <TableCell>
+                      {auditEventLabels[entry.event] ?? entry.event}
+                      {entry.detail && (
+                        <span className="text-muted-foreground"> — {entry.detail}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">
+                      {new Date(entry.at).toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
     </div>
   )
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: 'ok' | 'warn' | 'bad'
+}) {
+  const valueColor =
+    tone === 'ok' ? 'text-ok' : tone === 'warn' ? 'text-warn' : tone === 'bad' ? 'text-bad' : 'text-brand-dark'
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-1 truncate font-mono text-sm font-semibold text-brand-dark" title={hint}>
-        {value}
-      </p>
-    </div>
+    <Card className="py-4">
+      <CardContent className="px-4">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className={`mt-1 truncate font-mono text-sm font-semibold ${valueColor}`} title={hint ?? value}>
+          {value}
+        </p>
+        {hint && <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>}
+      </CardContent>
+    </Card>
   )
 }

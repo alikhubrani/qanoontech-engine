@@ -1,13 +1,32 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, type DeployStatus, type PreflightCheck } from '../api'
-import { Badge, Button, Card, ErrorNote, Input } from '../components'
+import { S } from '../strings'
+import { ErrorNote, StatusBadge } from '@/components/status'
 import {
   SchemaForm,
   SecretFields,
   type ObjectSchema,
   type SecretDeclaration,
-} from '../components/module-form'
-import { S } from '../strings'
+} from '@/components/module-form'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 
 interface ModuleRow {
   id: string
@@ -46,8 +65,7 @@ export function Deploy({
   const [error, setError] = useState<string | null>(null)
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-brand-dark">{S.deployTitle}</h1>
+    <div className="mx-auto w-full max-w-4xl space-y-4">
       {error && <ErrorNote>{error}</ErrorNote>}
       <RegistrySection onError={setError} />
       <SettingsSection onError={setError} onChanged={onChanged} />
@@ -95,30 +113,41 @@ function RegistrySection({ onError }: { onError: (message: string | null) => voi
   }
 
   return (
-    <Card title={S.registryTitle}>
-      <form onSubmit={save} className="space-y-3">
-        <p className="text-sm text-slate-500">{S.registryExplainer}</p>
-        {configuredAs && <p className="text-sm text-ok">{S.registryConfigured(configuredAs)}</p>}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder={S.registryUsername}
-            autoComplete="off"
-          />
-          <Input
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder={S.registryToken}
-            autoComplete="off"
-          />
-        </div>
-        {notice && <p className="text-sm text-slate-500">{notice}</p>}
-        <Button variant="primary" type="submit" disabled={busy || !username || !token}>
-          {busy ? S.workingEllipsis : S.registrySave}
-        </Button>
-      </form>
+    <Card>
+      <CardHeader>
+        <CardTitle>{S.registryTitle}</CardTitle>
+        <CardDescription>{S.registryExplainer}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="space-y-3">
+          {configuredAs && <p className="text-sm text-ok">{S.registryConfigured(configuredAs)}</p>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="reg-user">{S.registryUsername}</Label>
+              <Input
+                id="reg-user"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="reg-token">{S.registryToken}</Label>
+              <Input
+                id="reg-token"
+                type="password"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
+          <Button type="submit" disabled={busy || !username || !token}>
+            {busy ? S.workingEllipsis : S.registrySave}
+          </Button>
+        </form>
+      </CardContent>
     </Card>
   )
 }
@@ -165,51 +194,62 @@ function SettingsSection({
   }
 
   return (
-    <Card title={S.settingsTitle}>
-      <form onSubmit={save} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">{S.settingsBindAddress}</span>
-            <Input
-              value={settings.bindAddress}
-              onChange={(event) => setSettings({ ...settings, bindAddress: event.target.value })}
-            />
-            <span className="block text-xs text-slate-400">{S.settingsBindAddressHint}</span>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">{S.settingsAppPort}</span>
-            <Input
-              type="number"
-              value={settings.appPort}
-              onChange={(event) => setSettings({ ...settings, appPort: Number(event.target.value) })}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">{S.settingsTimezone}</span>
-            <Input
-              value={settings.timezone}
-              onChange={(event) => setSettings({ ...settings, timezone: event.target.value })}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">{S.settingsLanguage}</span>
-            <select
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={settings.defaultLanguage}
-              onChange={(event) =>
-                setSettings({ ...settings, defaultLanguage: event.target.value as 'ar' | 'en' })
-              }
-            >
-              <option value="ar">العربية</option>
-              <option value="en">English</option>
-            </select>
-          </label>
-        </div>
-        {saved && <p className="text-sm text-ok">{S.settingsSaved}</p>}
-        <Button variant="primary" type="submit" disabled={busy}>
-          {busy ? S.workingEllipsis : S.settingsSave}
-        </Button>
-      </form>
+    <Card>
+      <CardHeader>
+        <CardTitle>{S.settingsTitle}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{S.settingsBindAddress}</Label>
+              <Input
+                value={settings.bindAddress}
+                onChange={(event) => setSettings({ ...settings, bindAddress: event.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">{S.settingsBindAddressHint}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{S.settingsAppPort}</Label>
+              <Input
+                type="number"
+                value={settings.appPort}
+                onChange={(event) =>
+                  setSettings({ ...settings, appPort: Number(event.target.value) })
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{S.settingsTimezone}</Label>
+              <Input
+                value={settings.timezone}
+                onChange={(event) => setSettings({ ...settings, timezone: event.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{S.settingsLanguage}</Label>
+              <Select
+                value={settings.defaultLanguage}
+                onValueChange={(next) =>
+                  setSettings({ ...settings, defaultLanguage: next as 'ar' | 'en' })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ar">العربية</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {saved && <p className="text-sm text-ok">{S.settingsSaved}</p>}
+          <Button type="submit" disabled={busy}>
+            {busy ? S.workingEllipsis : S.settingsSave}
+          </Button>
+        </form>
+      </CardContent>
     </Card>
   )
 }
@@ -266,8 +306,7 @@ function ModulesSection({
     onError(null)
     setSaved(false)
     try {
-      // Secrets first: config validation may depend on the module being
-      // deployable, and a failed config save should not discard typed keys.
+      // Secrets first: a failed config save should not discard typed keys.
       if (Object.keys(secretDraft).length > 0) {
         await api.put(`/api/modules/${module.id}/secrets`, { values: secretDraft })
         setSecretDraft({})
@@ -286,64 +325,73 @@ function ModulesSection({
   }
 
   return (
-    <Card title={S.modulesTitle}>
-      <p className="mb-3 text-sm text-slate-500">{S.modulesExplainer}</p>
-      <ul className="space-y-2">
-        {modules
-          .filter((module) => !module.required)
-          .map((module) => (
-            <li key={module.id} className="rounded-md border border-slate-100 p-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-800">{module.title}</span>
-                    <Badge tone={module.enabled ? 'ok' : 'muted'}>
-                      {module.enabled ? 'on' : 'off'}
-                    </Badge>
-                    <span className="text-xs text-slate-400">{module.cost.image}</span>
+    <Card>
+      <CardHeader>
+        <CardTitle>{S.modulesTitle}</CardTitle>
+        <CardDescription>{S.modulesExplainer}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-2">
+          {modules
+            .filter((module) => !module.required)
+            .map((module) => (
+              <li key={module.id} className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{module.title}</span>
+                      <StatusBadge tone={module.enabled ? 'ok' : 'muted'}>
+                        {module.enabled ? 'on' : 'off'}
+                      </StatusBadge>
+                      <span className="text-xs text-muted-foreground">{module.cost.image}</span>
+                    </div>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{module.summary}</p>
                   </div>
-                  <p className="mt-0.5 text-sm text-slate-500">{module.summary}</p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  {(module.configSchema || module.secrets.length > 0) && (
-                    <Button onClick={() => openConfig(module)}>{S.moduleConfigure}</Button>
-                  )}
-                  <Button
-                    variant={module.enabled ? 'danger' : 'primary'}
-                    disabled={busy}
-                    onClick={() => toggle(module)}
-                  >
-                    {module.enabled ? S.moduleDisable : S.moduleEnable}
-                  </Button>
-                </div>
-              </div>
-              {open === module.id && (
-                <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
-                  {module.secrets.length > 0 && (
-                    <SecretFields
-                      secrets={module.secrets}
-                      values={secretDraft}
-                      onChange={setSecretDraft}
-                    />
-                  )}
-                  {module.configSchema && (
-                    <SchemaForm
-                      schema={module.configSchema}
-                      value={configDraft}
-                      onChange={setConfigDraft}
-                    />
-                  )}
-                  <div className="flex items-center gap-3">
-                    <Button variant="primary" disabled={busy} onClick={() => save(module)}>
-                      {busy ? S.workingEllipsis : S.moduleConfigSave}
+                  <div className="flex shrink-0 gap-2">
+                    {(module.configSchema || module.secrets.length > 0) && (
+                      <Button variant="outline" size="sm" onClick={() => openConfig(module)}>
+                        {S.moduleConfigure}
+                      </Button>
+                    )}
+                    <Button
+                      variant={module.enabled ? 'destructive' : 'default'}
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => toggle(module)}
+                    >
+                      {module.enabled ? S.moduleDisable : S.moduleEnable}
                     </Button>
-                    {saved && <span className="text-sm text-ok">{S.moduleConfigSaved}</span>}
                   </div>
                 </div>
-              )}
-            </li>
-          ))}
-      </ul>
+                {open === module.id && (
+                  <div className="mt-4 space-y-4">
+                    <Separator />
+                    {module.secrets.length > 0 && (
+                      <SecretFields
+                        secrets={module.secrets}
+                        values={secretDraft}
+                        onChange={setSecretDraft}
+                      />
+                    )}
+                    {module.configSchema && (
+                      <SchemaForm
+                        schema={module.configSchema}
+                        value={configDraft}
+                        onChange={setConfigDraft}
+                      />
+                    )}
+                    <div className="flex items-center gap-3">
+                      <Button size="sm" disabled={busy} onClick={() => save(module)}>
+                        {busy ? S.workingEllipsis : S.moduleConfigSave}
+                      </Button>
+                      {saved && <span className="text-sm text-ok">{S.moduleConfigSaved}</span>}
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+        </ul>
+      </CardContent>
     </Card>
   )
 }
@@ -384,54 +432,53 @@ function VersionSection({
   }
 
   return (
-    <Card title={S.versionTitle}>
-      <div className="space-y-3 text-sm">
+    <Card>
+      <CardHeader>
+        <CardTitle>{S.versionTitle}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
         <p>
-          <span className="text-slate-400">{S.versionCurrent}: </span>
-          <span className="font-mono font-semibold text-brand-dark">{version}</span>
+          <span className="text-muted-foreground">{S.versionCurrent}: </span>
+          <span className="font-mono font-semibold">{version}</span>
           {previousVersion && (
-            <span className="ml-4 text-slate-400">
+            <span className="ml-4 text-muted-foreground">
               {S.versionPrevious}: <span className="font-mono">{previousVersion}</span>
             </span>
           )}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {available.length > 0 ? (
-            <select
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={chosen}
-              onChange={(event) => setChosen(event.target.value)}
-            >
-              <option value="">{S.versionChoose}</option>
-              {available.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
+            <Select value={chosen} onValueChange={setChosen}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder={S.versionChoose} />
+              </SelectTrigger>
+              <SelectContent>
+                {available.map((tag) => (
+                  <SelectItem key={tag} value={tag}>
+                    {tag}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <Input
-              className="w-40"
+              className="w-44"
               value={chosen}
               onChange={(event) => setChosen(event.target.value)}
               placeholder={S.versionChoose}
             />
           )}
-          <Button
-            variant="primary"
-            disabled={busy || !chosen}
-            onClick={() => act('/api/version', { version: chosen })}
-          >
+          <Button disabled={busy || !chosen} onClick={() => act('/api/version', { version: chosen })}>
             {S.versionSet}
           </Button>
           {previousVersion && (
-            <Button variant="danger" disabled={busy} onClick={() => act('/api/rollback')}>
+            <Button variant="outline" disabled={busy} onClick={() => act('/api/rollback')}>
               {S.versionRollback}
             </Button>
           )}
         </div>
-        {previousVersion && <p className="text-xs text-slate-400">{S.versionRollbackWarn}</p>}
-      </div>
+        {previousVersion && <p className="text-xs text-muted-foreground">{S.versionRollbackWarn}</p>}
+      </CardContent>
     </Card>
   )
 }
@@ -453,26 +500,31 @@ function PreflightSection() {
   const blocked = checks?.some((check) => check.status === 'fail') ?? false
 
   return (
-    <Card title={S.preflightTitle}>
-      <div className="space-y-3">
-        <Button disabled={busy} onClick={run}>
+    <Card>
+      <CardHeader>
+        <CardTitle>{S.preflightTitle}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button variant="outline" disabled={busy} onClick={run}>
           {busy ? S.workingEllipsis : S.preflightRun}
         </Button>
         {checks && (
           <ul className="space-y-1.5 text-sm">
             {checks.map((check) => (
               <li key={check.id} className="flex items-baseline gap-2">
-                <Badge tone={check.status === 'pass' ? 'ok' : check.status === 'warn' ? 'warn' : 'bad'}>
+                <StatusBadge
+                  tone={check.status === 'pass' ? 'ok' : check.status === 'warn' ? 'warn' : 'bad'}
+                >
                   {check.status}
-                </Badge>
-                <span className="font-medium text-slate-700">{check.title}</span>
-                <span className="text-slate-500">{check.detail}</span>
+                </StatusBadge>
+                <span className="font-medium">{check.title}</span>
+                <span className="text-muted-foreground">{check.detail}</span>
               </li>
             ))}
           </ul>
         )}
         {blocked && <ErrorNote>{S.preflightBlocked}</ErrorNote>}
-      </div>
+      </CardContent>
     </Card>
   )
 }
@@ -511,12 +563,15 @@ function DeploySection({ onChanged }: { onChanged: () => void }) {
   }
 
   return (
-    <Card title={S.deployRunTitle}>
-      <div className="space-y-3">
-        <p className="text-sm text-slate-500">{S.deployExplainer}</p>
+    <Card>
+      <CardHeader>
+        <CardTitle>{S.deployRunTitle}</CardTitle>
+        <CardDescription>{S.deployExplainer}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
         {error && <ErrorNote>{error}</ErrorNote>}
         <div className="flex items-center gap-3">
-          <Button variant="primary" disabled={status?.running ?? false} onClick={start}>
+          <Button disabled={status?.running ?? false} onClick={start}>
             {status?.running ? S.deployRunning : S.deployStart}
           </Button>
           {status && !status.running && status.ok === true && (
@@ -527,11 +582,11 @@ function DeploySection({ onChanged }: { onChanged: () => void }) {
           )}
         </div>
         {status?.log && (
-          <pre className="max-h-80 overflow-auto rounded-md bg-slate-900 p-4 font-mono text-xs leading-relaxed text-slate-100">
-            {status.log}
-          </pre>
+          <ScrollArea className="h-80 rounded-lg bg-brand-dark p-4">
+            <pre className="font-mono text-xs leading-relaxed text-slate-100">{status.log}</pre>
+          </ScrollArea>
         )}
-      </div>
+      </CardContent>
     </Card>
   )
 }

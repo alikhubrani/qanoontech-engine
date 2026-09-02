@@ -17,9 +17,12 @@ export const S = {
   setupPasswordRule: 'At least 12 characters.',
   setupSubmit: 'Set password and continue',
   loginTitle: 'Sign in',
+  loginExplainer: 'The operations panel for this deployment.',
+  loginFootnote: 'Sign-ins are recorded in the audit log.',
   loginPassword: 'Operator password',
   loginSubmit: 'Sign in',
   logout: 'Sign out',
+  operatorLabel: 'Operator',
 
   // Navigation
   navOverview: 'Overview',
@@ -36,6 +39,8 @@ export const S = {
   dockerUnreachable: 'Docker did not answer:',
   auditTitle: 'Recent activity',
   auditEmpty: 'Nothing yet.',
+  auditWhat: 'What happened',
+  auditWhen: 'When',
 
   // Services
   servicesTitle: 'Services',
@@ -46,7 +51,12 @@ export const S = {
   actionRestart: 'Restart',
   actionLogs: 'Logs',
   logsTitle: (service: string) => `Logs — ${service}`,
+  logsRecent: 'The most recent 300 lines.',
   logsEmpty: 'No output.',
+  serviceColumn: 'Service',
+  stateColumn: 'State',
+  imageColumn: 'Image',
+  actionsColumn: 'Actions',
   close: 'Close',
 
   // Deploy
@@ -117,6 +127,12 @@ export const S = {
     'pre-restore': 'safety copy',
   } as Record<string, string>,
   restoreStepsTitle: 'Restore steps',
+  backupColumnSet: 'Backup set',
+  backupColumnKind: 'Kind',
+  backupColumnContents: 'Contents',
+  backupRestoreDialogTitle: 'Restore this backup?',
+  backupDeleteDialogTitle: 'Delete this backup?',
+  cancel: 'Cancel',
   supportTitle: 'Support bundle',
   supportExplainer:
     'A redacted snapshot of this deployment — states, logs, configuration — for sending to support. No documents, no database rows, no secrets. Nothing is sent anywhere; you download it and decide.',

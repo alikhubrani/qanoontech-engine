@@ -1,7 +1,24 @@
 import { useState } from 'react'
 import { api, ApiError, type ServiceView } from '../api'
-import { Badge, Button, Card, ErrorNote } from '../components'
 import { S } from '../strings'
+import { ErrorNote, StatusBadge } from '@/components/status'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 export function Services({
   services,
@@ -40,85 +57,100 @@ export function Services({
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-brand-dark">{S.servicesTitle}</h1>
+    <div className="mx-auto max-w-5xl space-y-4">
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <div className="space-y-3">
-        {services.map((service) => (
-          <Card key={service.id}>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-800">{service.title}</span>
+      <div className="rounded-lg border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{S.serviceColumn}</TableHead>
+              <TableHead>{S.stateColumn}</TableHead>
+              <TableHead className="hidden md:table-cell">{S.imageColumn}</TableHead>
+              <TableHead className="text-right">{S.actionsColumn}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {services.map((service) => (
+              <TableRow key={service.id}>
+                <TableCell>
+                  <div className="font-medium">{service.title}</div>
+                  <div className="text-xs text-muted-foreground">{service.summary}</div>
+                </TableCell>
+                <TableCell>
                   <StateBadge service={service} />
-                  {service.required && <Badge tone="muted">{S.requiredBadge}</Badge>}
-                </div>
-                <p className="mt-0.5 truncate text-sm text-slate-500">{service.summary}</p>
-                {service.image && (
-                  <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{service.image}</p>
-                )}
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <Button onClick={() => showLogs(service.id)}>{S.actionLogs}</Button>
-                {service.state === 'running' ? (
-                  <>
-                    <Button
-                      disabled={busy !== null}
-                      onClick={() => act(service.id, 'restart')}
-                    >
-                      {busy === `${service.id}:restart` ? S.workingEllipsis : S.actionRestart}
+                  {service.required && (
+                    <StatusBadge tone="muted" className="ml-1.5">
+                      {S.requiredBadge}
+                    </StatusBadge>
+                  )}
+                </TableCell>
+                <TableCell className="hidden max-w-56 truncate font-mono text-xs text-muted-foreground md:table-cell">
+                  {service.image || '—'}
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="outline" size="sm" onClick={() => showLogs(service.id)}>
+                      {S.actionLogs}
                     </Button>
-                    <Button
-                      variant="danger"
-                      disabled={busy !== null}
-                      onClick={() => act(service.id, 'stop')}
-                    >
-                      {busy === `${service.id}:stop` ? S.workingEllipsis : S.actionStop}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    variant="primary"
-                    disabled={busy !== null || service.state === 'absent'}
-                    onClick={() => act(service.id, 'start')}
-                  >
-                    {busy === `${service.id}:start` ? S.workingEllipsis : S.actionStart}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
-        ))}
+                    {service.state === 'running' ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => act(service.id, 'restart')}
+                        >
+                          {busy === `${service.id}:restart` ? S.workingEllipsis : S.actionRestart}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-bad hover:text-bad"
+                          disabled={busy !== null}
+                          onClick={() => act(service.id, 'stop')}
+                        >
+                          {busy === `${service.id}:stop` ? S.workingEllipsis : S.actionStop}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={busy !== null || service.state === 'absent'}
+                        onClick={() => act(service.id, 'start')}
+                      >
+                        {busy === `${service.id}:start` ? S.workingEllipsis : S.actionStart}
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
 
-      {logsFor && (
-        <div
-          className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-6"
-          onClick={() => setLogsFor(null)}
-        >
-          <div
-            className="flex max-h-full w-full max-w-4xl flex-col rounded-lg bg-white shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h2 className="text-sm font-semibold text-slate-700">{S.logsTitle(logsFor)}</h2>
-              <Button onClick={() => setLogsFor(null)}>{S.close}</Button>
-            </div>
-            <pre className="overflow-auto p-4 font-mono text-xs leading-relaxed text-slate-700">
+      <Sheet open={logsFor !== null} onOpenChange={(open) => !open && setLogsFor(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>{logsFor ? S.logsTitle(logsFor) : ''}</SheetTitle>
+            <SheetDescription>{S.logsRecent}</SheetDescription>
+          </SheetHeader>
+          <ScrollArea className="h-[calc(100vh-8rem)] px-4">
+            <pre className="pb-6 font-mono text-xs leading-relaxed whitespace-pre-wrap">
               {logs || S.logsEmpty}
             </pre>
-          </div>
-        </div>
-      )}
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
 
 function StateBadge({ service }: { service: ServiceView }) {
-  if (service.state === 'absent') return <Badge tone="muted">{S.stateAbsent}</Badge>
-  if (service.state !== 'running') return <Badge tone="bad">{service.state}</Badge>
-  if (service.health === 'unhealthy') return <Badge tone="bad">unhealthy</Badge>
-  if (service.health === 'starting') return <Badge tone="warn">starting</Badge>
-  return <Badge tone="ok">{service.health || 'running'}</Badge>
+  if (service.state === 'absent') return <StatusBadge tone="muted">{S.stateAbsent}</StatusBadge>
+  if (service.state !== 'running') return <StatusBadge tone="bad">{service.state}</StatusBadge>
+  if (service.health === 'unhealthy') return <StatusBadge tone="bad">unhealthy</StatusBadge>
+  if (service.health === 'starting') return <StatusBadge tone="warn">starting</StatusBadge>
+  return <StatusBadge tone="ok">{service.health || 'running'}</StatusBadge>
 }

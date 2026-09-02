@@ -1,6 +1,17 @@
 import { useMemo, useState } from 'react'
-import { Badge, Button, Input } from '../components'
 import { S } from '../strings'
+import { StatusBadge } from '@/components/status'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 
 /**
  * The module configuration form, rendered from the module's own JSON schema —
@@ -83,15 +94,14 @@ function Field({
     const selected = new Set(Array.isArray(value) ? (value as string[]) : (property.default as string[]) ?? [])
     return (
       <Labelled label={label} help={help}>
-        <div className="flex flex-wrap gap-3 pt-1">
+        <div className="flex flex-wrap gap-4 pt-1">
           {property.items.enum.map((option) => (
-            <label key={option} className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input
-                type="checkbox"
+            <label key={option} className="flex items-center gap-1.5 text-sm">
+              <Checkbox
                 checked={selected.has(option)}
-                onChange={(event) => {
+                onCheckedChange={(checked) => {
                   const next = new Set(selected)
-                  if (event.target.checked) next.add(option)
+                  if (checked === true) next.add(option)
                   else next.delete(option)
                   onChange([...next])
                 }}
@@ -107,18 +117,21 @@ function Field({
   if (property.enum) {
     return (
       <Labelled label={label} help={help}>
-        <select
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+        <Select
           value={String(value ?? property.default ?? '')}
-          onChange={(event) => onChange(event.target.value)}
+          onValueChange={(next) => onChange(next)}
         >
-          {!required && <option value="">—</option>}
-          {property.enum.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={required ? undefined : '—'} />
+          </SelectTrigger>
+          <SelectContent>
+            {property.enum.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </Labelled>
     )
   }
@@ -126,11 +139,10 @@ function Field({
   if (property.type === 'boolean') {
     return (
       <Labelled label={label} help={help}>
-        <label className="flex items-center gap-2 pt-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
+        <label className="flex items-center gap-2 pt-2 text-sm">
+          <Checkbox
             checked={Boolean(value ?? property.default ?? false)}
-            onChange={(event) => onChange(event.target.checked)}
+            onCheckedChange={(checked) => onChange(checked === true)}
           />
           {label}
         </label>
@@ -171,9 +183,9 @@ function Field({
 function Labelled({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) {
   return (
     <label className="space-y-1 text-sm">
-      <span className="font-medium text-slate-600">{label}</span>
+      <span className="font-medium">{label}</span>
       {children}
-      {help && <span className="block text-xs text-slate-400">{help}</span>}
+      {help && <span className="block text-xs font-normal text-muted-foreground">{help}</span>}
     </label>
   )
 }
@@ -236,13 +248,13 @@ function SecretField({
   return (
     <div className="space-y-1 text-sm">
       <div className="flex items-center gap-2">
-        <span className="font-medium text-slate-600">{secret.title}</span>
-        {secret.set && <Badge tone="ok">{S.secretSet}</Badge>}
+        <span className="font-medium">{secret.title}</span>
+        {secret.set && <StatusBadge tone="ok">{S.secretSet}</StatusBadge>}
       </div>
       {secret.kind === 'json' ? (
         <div className="space-y-1.5">
-          <textarea
-            className="h-20 w-full rounded-md border border-slate-300 p-2 font-mono text-xs outline-none focus:border-brand"
+          <Textarea
+            className="h-20 font-mono text-xs"
             value={value}
             placeholder={secret.set ? S.secretReplacePlaceholder : '{ … }'}
             onChange={(event) => {
@@ -253,11 +265,13 @@ function SecretField({
           <div className="flex items-center gap-2">
             <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => document.getElementById(`file-${secret.name}`)?.click()}
             >
               {S.secretChooseFile}
             </Button>
-            {fileName && <span className="text-xs text-slate-400">{fileName}</span>}
+            {fileName && <span className="text-xs text-muted-foreground">{fileName}</span>}
             <input
               id={`file-${secret.name}`}
               type="file"
@@ -283,7 +297,7 @@ function SecretField({
           onChange={(event) => onChange(event.target.value)}
         />
       )}
-      <span className="block text-xs text-slate-400">{secret.help}</span>
+      <span className="block text-xs text-muted-foreground">{secret.help}</span>
     </div>
   )
 }
