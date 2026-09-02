@@ -234,7 +234,7 @@ program
 
 program
   .command('self-update <version>')
-  .description("Replace the engine's own container. UNTESTED without a real daemon; see docs")
+  .description("Replace the engine's own container via a helper")
   .option('--name <name>', 'the engine container name', 'qanoontech-engine')
   .option('--image <image>', 'full image reference, overriding the published one')
   .action(async (version: string, options: { name: string; image?: string }) => {
