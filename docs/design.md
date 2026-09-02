@@ -1,6 +1,6 @@
 # QanoonTech Engine — design
 
-**Status: phases 1–4 built and proven on the staging box (2026-09-02); phase 5 proposed.** This document is the decision
+**Status: all five phases built and proven on the staging box (2026-09-02). Remaining: the licence service (separate repository), the offsite backup copy, and the OCR / Drive-mirror module images (application-repository work).** This document is the decision
 record and the plan. Where it states a decision, that decision was made
 deliberately and the alternative is written down next to it, so that changing
 course later is an argument with a known cost rather than a rediscovery.
@@ -561,7 +561,7 @@ next begins.
 | **2** *(built, proven on the staging box)* | Web UI: Overview, Services, logs, start/stop/restart. Auth, throttle, audit log | an operator runs the deployment from a browser |
 | **3** *(built and proven on the staging box — enforcement fired and cleared; the licence service itself is not built)* | Licence: format, offline verification, heartbeat client, grace state machine, enforcement, offline override | enforcement fires correctly on a test box and clears with a new licence |
 | **4** *(built and proven on the staging box, self-update included; the update flow's backup step waits on phase 5)* | Bootstrap wizard, preflight, versions and rollback, self-update, `rescue.sh` | a clean box goes from one `docker run` to a running firm in a browser |
-| **5** | Modules: PaddleOCR sidecar, Drive mirror extraction, tunnel. Backups, restore, offsite. Support bundle | modules can be enabled and disabled, and a restore completes without a terminal |
+| **5** *(built and proven on the staging box: a restore completed end to end through the API, a marker row travelling back with it. Outstanding: the offsite copy, and the OCR / Drive-mirror images, which are application-repository work)* | Modules: PaddleOCR sidecar, Drive mirror extraction, tunnel. Backups, restore, offsite. Support bundle | modules can be enabled and disabled, and a restore completes without a terminal |
 
 The licence service is built alongside phase 3 and lives in its own repository.
 

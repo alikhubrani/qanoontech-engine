@@ -246,3 +246,25 @@ describe('self-update arguments', () => {
     expect(script).toContain("docker run -d --name 'qanoontech-engine'")
   })
 })
+
+describe('the support bundle', () => {
+  it('is valid JSON after redaction, with no stored secret value inside', async () => {
+    // The first redactor broke the JSON it was redacting — found on the
+    // staging box, on the first real download. This is that download.
+    await licensed()
+    const cookie = await signIn()
+    const { gunzipSync } = await import('node:zlib')
+    const response = await app.inject({ method: 'GET', url: '/api/support-bundle', headers: { cookie } })
+    expect(response.statusCode).toBe(200)
+
+    const text = gunzipSync(response.rawPayload).toString()
+    const bundle = JSON.parse(text) as Record<string, unknown>
+    expect(Object.keys(bundle)).toContain('preflight')
+    expect(Object.keys(bundle)).toContain('audit')
+
+    const { loadSecrets } = await import('../state/store.js')
+    for (const value of Object.values(loadSecrets(dir))) {
+      expect(text).not.toContain(value)
+    }
+  })
+})

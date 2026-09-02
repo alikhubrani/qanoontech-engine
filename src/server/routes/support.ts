@@ -27,21 +27,53 @@ import { listServices } from './services.js'
 const LOG_LINES_PER_SERVICE = 300
 
 /**
- * Redaction, two layers deep. Known-sensitive keys are masked by *name*
- * wherever they appear. Then every stored secret *value* is scrubbed from the
- * whole text — so a secret that leaks somewhere unexpected (a connection
- * string, an error message, a log line) is caught by its value even though
- * nothing knew to look for it there.
+ * Redaction, three layers, each safe for what it runs over.
+ *
+ * Structured data is redacted *structurally*: deepRedact walks the object and
+ * masks any value under a sensitive-looking key, so the JSON stays JSON. Text
+ * blobs — the compose file, log output — get a line-oriented pass, because
+ * they are lines. And the final serialized document gets a value scrub:
+ * every stored secret's exact value replaced wherever it appears, catching a
+ * secret that leaked somewhere nothing knew to look.
+ *
+ * The first version ran a key regex over the serialized JSON and produced a
+ * bundle that would not parse — found on the staging box, on the first real
+ * download. Hence the rule each layer now follows: redact the shape you are
+ * actually looking at.
  */
-export function redactSecrets(text: string, secrets: Readonly<Record<string, string>>): string {
+const SENSITIVE_KEY = /(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)/i
+
+export function deepRedact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(deepRedact)
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) =>
+        SENSITIVE_KEY.test(key) && (typeof entry === 'string' || typeof entry === 'number')
+          ? [key, '«redacted»']
+          : [key, deepRedact(entry)],
+      ),
+    )
+  }
+  return value
+}
+
+export function redactLines(text: string): string {
+  return text
+    .split('\n')
+    .map((line) =>
+      line.replace(
+        /^(\s*"?[\w-]*(?:PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)[\w-]*"?\s*[:=]\s*).*$/i,
+        '$1«redacted»',
+      ),
+    )
+    .join('\n')
+}
+
+export function scrubValues(text: string, secrets: Readonly<Record<string, string>>): string {
   let out = text
   for (const value of Object.values(secrets)) {
     if (value.length >= 6) out = out.split(value).join('«redacted»')
   }
-  out = out.replace(
-    /("?)((?:\w*(?:PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)\w*)\1\s*[:=]\s*)("?)([^"\n,}]+)\3/gi,
-    '$1$2$3«redacted»$3',
-  )
   return out
 }
 
@@ -56,12 +88,12 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
     for (const service of services) {
       if (service.state === 'absent') continue
       const result = await docker.logs(service.id, LOG_LINES_PER_SERVICE)
-      logs[service.id] = result.stdout.slice(-100_000)
+      logs[service.id] = redactLines(result.stdout.slice(-100_000))
     }
 
     let composeFile = ''
     try {
-      composeFile = readFileSync(docker.composeFilePath(dir), 'utf8')
+      composeFile = redactLines(readFileSync(docker.composeFilePath(dir), 'utf8'))
     } catch {
       composeFile = '(no rendered compose file)'
     }
@@ -71,15 +103,15 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
     const bundle = {
       generatedAt: new Date().toISOString(),
       engineVersion: ctx.engineVersion,
-      state: {
+      state: deepRedact({
         version: state.version,
         previousVersion: state.previousVersion ?? null,
         settings: state.settings,
         enabled: state.enabled,
         // Module config may hold identifiers but never credentials — those
-        // live in the secret store. Redaction still runs over all of it.
+        // live in the secret store. Redaction still walks all of it.
         config: state.config,
-      },
+      }),
       licence: { standing: licence.standing, message: licence.message },
       services,
       logs,
@@ -89,7 +121,7 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
       audit: ctx.audit.recent(200),
     }
 
-    const redacted = redactSecrets(JSON.stringify(bundle, null, 2), secrets)
+    const redacted = scrubValues(JSON.stringify(bundle, null, 2), secrets)
     const gzipped = gzipSync(Buffer.from(redacted))
 
     return reply

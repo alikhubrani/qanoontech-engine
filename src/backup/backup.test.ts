@@ -25,7 +25,7 @@ vi.mock('../docker/index.js', async (importOriginal) => {
 })
 
 import * as docker from '../docker/index.js'
-import { redactSecrets } from '../server/routes/support.js'
+import { deepRedact, redactLines, scrubValues } from '../server/routes/support.js'
 import { saveSecrets, saveState, loadState } from '../state/store.js'
 import { backupDue } from './schedule.js'
 import {
@@ -175,33 +175,42 @@ describe('restore', () => {
 })
 
 describe('redaction', () => {
-  it('scrubs every stored secret value and every sensitive-looking key', () => {
-    const secrets = {
-      DB_PASSWORD: 'a9c0b8424206deadbeef',
-      JWT_SECRET: '7bac9885002e4cd24229',
-      GHCR_TOKEN: 'ghp_realtoken123456',
-    }
-    const bundle = JSON.stringify({
-      composeFile: 'POSTGRES_PASSWORD: a9c0b8424206deadbeef\nDATABASE_URL: postgresql://q:a9c0b8424206deadbeef@postgres/db',
-      log: 'error: login failed for token ghp_realtoken123456',
-      config: { SETTINGS_ENCRYPTION_KEY: 'not-even-stored-but-key-shaped' },
-    })
-    const redacted = redactSecrets(bundle, secrets)
-    for (const value of Object.values(secrets)) {
-      expect(redacted).not.toContain(value)
-    }
-    expect(redacted).not.toContain('not-even-stored-but-key-shaped')
-    expect(redacted).toContain('«redacted»')
+  it('scrubs stored values from any text, wherever they appear', () => {
+    const secrets = { DB_PASSWORD: 'a9c0b8424206deadbeef', GHCR_TOKEN: 'ghp_realtoken123456' }
+    const text =
+      'DATABASE_URL: postgresql://q:a9c0b8424206deadbeef@postgres/db\n' +
+      'error: login failed for token ghp_realtoken123456'
+    const scrubbed = scrubValues(text, secrets)
+    for (const value of Object.values(secrets)) expect(scrubbed).not.toContain(value)
   })
 
-  it('is tested against the real generated secret names', async () => {
-    // The redactor list must cover what the store actually generates — adding
-    // a secret the redactor misses should fail here, not ship.
+  it('masks sensitive keys line by line without eating the line structure', () => {
+    const yaml = 'POSTGRES_PASSWORD: hunter2\n  JWT_SECRET: abc\nDEFAULT_LANGUAGE: ar'
+    const redacted = redactLines(yaml)
+    expect(redacted).toContain('POSTGRES_PASSWORD: «redacted»')
+    expect(redacted).toContain('JWT_SECRET: «redacted»')
+    expect(redacted).toContain('DEFAULT_LANGUAGE: ar')
+    expect(redacted.split('\n')).toHaveLength(3)
+  })
+
+  it('walks objects and masks by key, leaving the structure parseable', () => {
+    const redacted = deepRedact({
+      config: { SETTINGS_ENCRYPTION_KEY: 'key-shaped-value', sharedDriveId: '0ABC' },
+      nested: [{ apiToken: 'tok' }],
+    }) as Record<string, never>
+    const text = JSON.stringify(redacted)
+    expect(JSON.parse(text)).toBeTruthy()
+    expect(text).not.toContain('key-shaped-value')
+    expect(text).not.toContain('"tok"')
+    expect(text).toContain('0ABC')
+  })
+
+  it('covers the real generated secret names by value', async () => {
+    // Adding a secret the scrubber misses should fail here, not ship.
     const { GENERATED_SECRETS } = await import('../state/store.js')
     for (const { name, generate } of GENERATED_SECRETS) {
       const value = generate()
-      const text = `something ${name}=${value} in a log`
-      expect(redactSecrets(text, { [name]: value })).not.toContain(value)
+      expect(scrubValues(`${name}=${value}`, { [name]: value })).not.toContain(value)
     }
   })
 })
