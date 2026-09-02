@@ -50,6 +50,8 @@ export interface DockerOptions {
   readonly composeFile?: string
   /** Where output should go while a long command runs. */
   readonly onOutput?: (chunk: string) => void
+  /** Fed to stdin and closed. For credentials, so they never hit argv. */
+  readonly input?: string
 }
 
 /** Reject anything the catalogue does not define, before it reaches Docker. */
@@ -73,16 +75,22 @@ function run(
   options: DockerOptions = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(command, [...args], {
+      stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    })
+    if (options.input !== undefined) {
+      child.stdin?.write(options.input)
+      child.stdin?.end()
+    }
     let stdout = ''
     let stderr = ''
 
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
       stdout += text
       options.onOutput?.(text)
     })
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
       stderr += text
       options.onOutput?.(text)
@@ -177,4 +185,75 @@ export async function down(options?: DockerOptions): Promise<CommandResult> {
 /** Check the generated file parses before anything is asked to run it. */
 export async function validate(options?: DockerOptions): Promise<CommandResult> {
   return compose(['config', '--quiet'], options)
+}
+
+/** Compose v2 present? Its absence is a preflight failure with its own name. */
+export async function composeVersion(): Promise<CommandResult> {
+  return run('docker', ['compose', 'version', '--short'])
+}
+
+/** Volume names under this project, for the is-this-a-reinstall check. */
+export async function volumes(): Promise<CommandResult> {
+  return run('docker', [
+    'volume',
+    'ls',
+    '--filter',
+    `label=com.docker.compose.project=${PROJECT_NAME}`,
+    '--format',
+    '{{.Name}}',
+  ])
+}
+
+/**
+ * Store the registry credential with the daemon, so `pull` can use it. The
+ * token travels on stdin — an argv value is visible to every process on the
+ * box for as long as the command runs.
+ */
+export async function login(registry: string, username: string, token: string): Promise<CommandResult> {
+  return run('docker', ['login', registry, '--username', username, '--password-stdin'], {
+    input: token,
+  })
+}
+
+/**
+ * The engine replacing itself — the one operation compose cannot express,
+ * because a container cannot survive removing itself. A short-lived helper
+ * (the official docker CLI image, digest-pinned at release) is started
+ * detached with the socket; it pulls the new engine image, removes this
+ * container, and re-creates it from the recorded run configuration. If the
+ * helper dies mid-way the old image is still on disk and `rescue.sh` brings
+ * the panel back by hand.
+ *
+ * UNTESTED AGAINST A REAL DAEMON — exercised only as constructed arguments
+ * until there is a box. Treat with suspicion until then.
+ */
+export function selfUpdateArgs(newImage: string, containerName: string, runArgs: readonly string[]): string[] {
+  const script = [
+    `docker pull ${shellQuote(newImage)}`,
+    `docker rm -f ${shellQuote(containerName)}`,
+    `docker run -d --name ${shellQuote(containerName)} ${runArgs.map(shellQuote).join(' ')} ${shellQuote(newImage)}`,
+  ].join(' && ')
+  return [
+    'run',
+    '--detach',
+    '--rm',
+    '--volume',
+    '/var/run/docker.sock:/var/run/docker.sock',
+    'docker:cli',
+    'sh',
+    '-c',
+    script,
+  ]
+}
+
+export async function selfUpdate(
+  newImage: string,
+  containerName: string,
+  runArgs: readonly string[],
+): Promise<CommandResult> {
+  return run('docker', selfUpdateArgs(newImage, containerName, runArgs))
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\''`)}'`
 }

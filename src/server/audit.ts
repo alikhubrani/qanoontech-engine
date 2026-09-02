@@ -29,6 +29,13 @@ export type AuditEvent =
   | 'licence-installed'
   | 'licence-enforced'
   | 'licence-cleared'
+  | 'settings-changed'
+  | 'registry-changed'
+  | 'version-set'
+  | 'module-enabled'
+  | 'module-disabled'
+  | 'module-configured'
+  | 'deploy-started'
 
 export interface AuditEntry {
   readonly at: string

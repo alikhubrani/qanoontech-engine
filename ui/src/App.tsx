@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError, type LicenceInfo, type Overview as OverviewData } from './api'
 import { Button } from './components'
 import { Login } from './pages/Login'
+import { Deploy } from './pages/Deploy'
 import { Licence } from './pages/Licence'
 import { Overview } from './pages/Overview'
 import { Services } from './pages/Services'
 import { S } from './strings'
 
-type Page = 'overview' | 'services' | 'licence'
+type Page = 'overview' | 'services' | 'deploy' | 'licence'
 
 /**
  * The shell: an auth gate, a sidebar, and a poll.
@@ -78,6 +79,7 @@ export function App() {
         <nav className="flex-1 space-y-1 p-2">
           <NavItem label={S.navOverview} active={page === 'overview'} onClick={() => setPage('overview')} />
           <NavItem label={S.navServices} active={page === 'services'} onClick={() => setPage('services')} />
+          <NavItem label={S.navDeploy} active={page === 'deploy'} onClick={() => setPage('deploy')} />
           <NavItem label={S.navLicence} active={page === 'licence'} onClick={() => setPage('licence')} />
         </nav>
         <div className="border-t border-slate-100 p-2">
@@ -101,6 +103,12 @@ export function App() {
             <Overview data={data} />
           ) : page === 'services' ? (
             <Services services={data.services} onChanged={() => void refresh()} />
+          ) : page === 'deploy' ? (
+            <Deploy
+              version={data.version}
+              previousVersion={data.previousVersion}
+              onChanged={() => void refresh()}
+            />
           ) : licence ? (
             <Licence licence={licence} onChanged={() => void refresh()} />
           ) : null}

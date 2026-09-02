@@ -84,3 +84,26 @@ export interface LicenceInfo {
   } | null
   heartbeat: { lastSuccessAt: number | null; lastError: string | null }
 }
+
+export interface PreflightCheck {
+  id: string
+  title: string
+  status: 'pass' | 'warn' | 'fail'
+  detail: string
+}
+
+export interface DeployStatus {
+  running: boolean
+  step: string
+  ok: boolean | null
+  log: string
+  startedAt: number
+}
+
+export interface ModuleInfo {
+  id: string
+  title: string
+  summary: string
+  required: boolean
+  cost: { image: string; memory: string; cpus: string }
+}

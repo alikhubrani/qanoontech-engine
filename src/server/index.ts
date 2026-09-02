@@ -9,7 +9,9 @@ import { AuditLog } from './audit.js'
 import { AuthStore } from './auth.js'
 import type { ServerContext } from './context.js'
 import { checkHost, checkOrigin, defaultAllowedHosts, refuse } from './guards.js'
+import { JobRunner } from './jobs.js'
 import { startLicenceLoop } from './licence-tick.js'
+import { deployRoutes } from './routes/deploy.js'
 import { licenceRoutes } from './routes/licence.js'
 import { overviewRoutes } from './routes/overview.js'
 import { SESSION_COOKIE, sessionRoutes } from './routes/session.js'
@@ -82,6 +84,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   overviewRoutes(app, ctx)
   serviceRoutes(app, ctx)
   licenceRoutes(app, ctx)
+  deployRoutes(app, ctx, new JobRunner(dir))
   if (options.licenceLoop ?? true) startLicenceLoop(app, ctx)
 
   const uiDir = options.uiDir ?? defaultUiDir()

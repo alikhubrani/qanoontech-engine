@@ -189,6 +189,70 @@ secrets
   })
 
 // ---------------------------------------------------------------------------
+// Preflight, versions, rollback
+// ---------------------------------------------------------------------------
+
+program
+  .command('preflight')
+  .description('Check this machine before installing, or after anything changed')
+  .action(async () => {
+    const { runPreflight, preflightBlocked } = await import('./preflight/index.js')
+    const checks = await runPreflight()
+    for (const check of checks) {
+      const mark = check.status === 'pass' ? '✓' : check.status === 'warn' ? '!' : '✗'
+      console.log(`${mark} ${check.title.padEnd(22)} ${check.detail}`)
+    }
+    if (preflightBlocked(checks)) {
+      console.error('\nBlocked. Fix the ✗ lines before deploying.')
+      process.exit(1)
+    }
+  })
+
+program
+  .command('versions')
+  .description('Published versions, from the registry')
+  .action(async () => {
+    const { listVersions, storedRegistryAuth } = await import('./registry.js')
+    const auth = storedRegistryAuth()
+    if (!auth) fail('No registry credential is set. Set GHCR_USERNAME and GHCR_TOKEN via secrets.')
+    const result = await listVersions(auth)
+    if (!result.ok) fail(result.detail)
+    console.log(result.versions.join('\n') || '(none published)')
+  })
+
+program
+  .command('rollback')
+  .description('Configure the previously installed version. Run apply afterwards')
+  .action(async () => {
+    const { rollbackVersion } = await import('./server/jobs.js')
+    const { stateDir } = await import('./state/store.js')
+    const result = rollbackVersion(stateDir())
+    if (!result.ok) fail(result.detail)
+    console.log(result.detail)
+    console.log("Run 'apply' to deploy it.")
+  })
+
+program
+  .command('self-update <version>')
+  .description("Replace the engine's own container. UNTESTED without a real daemon; see docs")
+  .option('--name <name>', 'the engine container name', 'qanoontech-engine')
+  .action(async (version: string, options: { name: string }) => {
+    const { selfUpdate } = await import('./docker/index.js')
+    const image = `ghcr.io/alikhubrani/qanoontech-engine:${version}`
+    // The recorded run configuration: the mounts and port the README installs
+    // with. A container cannot inspect its own flags, so the contract is that
+    // installations use these — rescue.sh restores a panel that diverged.
+    const result = await selfUpdate(image, options.name, [
+      '--volume', '/var/run/docker.sock:/var/run/docker.sock',
+      '--volume', 'qanoontech_engine:/var/lib/qanoontech-engine',
+      '--publish', '127.0.0.1:8081:8080',
+      '--restart', 'unless-stopped',
+    ])
+    if (result.code !== 0) fail(result.stderr.trim() || 'Could not start the update helper.')
+    console.log('Update helper started. This container will be replaced in a moment.')
+  })
+
+// ---------------------------------------------------------------------------
 // Licence
 // ---------------------------------------------------------------------------
 
