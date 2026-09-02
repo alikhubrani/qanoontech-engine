@@ -38,7 +38,7 @@ export const driveMirror = defineModule({
   entitlement: 'module.drive-mirror',
   image: { kind: 'versioned', repository: 'ghcr.io/alikhubrani/qanoontech-drive-mirror' },
   cost: { image: '~120 MB', memory: '512M', cpus: '0.5' },
-  requires: ['app'],
+  requires: ['app', 'postgres'],
   config,
   secrets: [
     {
@@ -53,6 +53,13 @@ export const driveMirror = defineModule({
     image: `ghcr.io/alikhubrani/qanoontech-drive-mirror:${ctx.version}`,
     restart: 'unless-stopped',
     environment: {
+      // The same database the application uses: the queue is driveMirrorJob
+      // rows the application writes, and per-file state lives on File. The
+      // mirror is an application-family component — it is the *engine* that
+      // never holds a database connection, not this container.
+      DATABASE_URL:
+        `postgresql://${ctx.settings.dbUser}:${ctx.secret('DB_PASSWORD')}` +
+        `@postgres:5432/${ctx.settings.dbName}?schema=public`,
       GOOGLE_SERVICE_ACCOUNT_KEY: ctx.secret('GOOGLE_SERVICE_ACCOUNT_KEY'),
       DRIVE_SHARED_DRIVE_ID: ctx.config.sharedDriveId,
       DRIVE_MAX_FILE_SIZE: String(ctx.config.maxFileSizeBytes),

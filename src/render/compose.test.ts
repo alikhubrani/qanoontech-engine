@@ -158,4 +158,13 @@ describe('render', () => {
     const result = render({ modules: resolution.modules, version: '  ', settings, secrets })
     expect(result.ok).toBe(false)
   })
+
+  it('gives the drive mirror the application database and never a write mount', () => {
+    const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
+    const mirror = doc.services['drive-mirror']
+    expect(mirror.environment.DATABASE_URL).toContain('@postgres:5432/')
+    expect(mirror.environment.DATABASE_URL).toContain('db-secret')
+    expect(mirror.volumes).toEqual(['uploads_data:/app/uploads:ro'])
+    expect(mirror.depends_on.postgres).toEqual({ condition: 'service_healthy' })
+  })
 })
