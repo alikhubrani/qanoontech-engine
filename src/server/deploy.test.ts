@@ -241,6 +241,7 @@ describe('self-update arguments', () => {
     expect(args).toContain('--detach')
     const script = args[args.length - 1]!
     expect(script).toContain("docker pull 'ghcr.io/x/engine:1.2.3'")
+    expect(script).toContain("|| docker image inspect 'ghcr.io/x/engine:1.2.3'")
     expect(script).toContain("docker rm -f 'qanoontech-engine'")
     expect(script).toContain("docker run -d --name 'qanoontech-engine'")
   })

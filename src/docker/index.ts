@@ -234,7 +234,11 @@ export async function login(registry: string, username: string, token: string): 
  */
 export function selfUpdateArgs(newImage: string, containerName: string, runArgs: readonly string[]): string[] {
   const script = [
-    `docker pull ${shellQuote(newImage)}`,
+    // Pull, or accept an image already on the box — a development build, or a
+    // box that pre-pulled while it had connectivity. Either way the image
+    // must exist before anything running is touched; if both fail, the chain
+    // stops here and the old engine is still standing.
+    `(docker pull ${shellQuote(newImage)} || docker image inspect ${shellQuote(newImage)} >/dev/null)`,
     `docker rm -f ${shellQuote(containerName)}`,
     `docker run -d --name ${shellQuote(containerName)} ${runArgs.map(shellQuote).join(' ')} ${shellQuote(newImage)}`,
   ].join(' && ')

@@ -236,9 +236,10 @@ program
   .command('self-update <version>')
   .description("Replace the engine's own container. UNTESTED without a real daemon; see docs")
   .option('--name <name>', 'the engine container name', 'qanoontech-engine')
-  .action(async (version: string, options: { name: string }) => {
+  .option('--image <image>', 'full image reference, overriding the published one')
+  .action(async (version: string, options: { name: string; image?: string }) => {
     const { selfUpdate } = await import('./docker/index.js')
-    const image = `ghcr.io/alikhubrani/qanoontech-engine:${version}`
+    const image = options.image ?? `ghcr.io/alikhubrani/qanoontech-engine:${version}`
     // The recorded run configuration: the mounts and port the README installs
     // with. A container cannot inspect its own flags, so the contract is that
     // installations use these — rescue.sh restores a panel that diverged.
