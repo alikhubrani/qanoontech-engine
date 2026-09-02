@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { z } from 'zod'
+import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 import type { DeploymentSettings } from '../catalogue/index.js'
 
 /**
@@ -50,12 +50,12 @@ const STATE_FILE = 'state.json'
 const SECRETS_FILE = 'secrets.json'
 
 export function loadState(dir = stateDir()): EngineState {
-  const raw = readJson(join(dir, STATE_FILE))
+  const raw = readJsonFile(join(dir, STATE_FILE))
   return stateSchema.parse(raw ?? {})
 }
 
 export function saveState(state: EngineState, dir = stateDir()): void {
-  writeJsonAtomic(join(dir, STATE_FILE), stateSchema.parse(state), 0o600)
+  writeJsonAtomic(join(dir, STATE_FILE), stateSchema.parse(state))
 }
 
 /**
@@ -64,12 +64,12 @@ export function saveState(state: EngineState, dir = stateDir()): void {
  * anything the operator can download — see the support bundle redactors.
  */
 export function loadSecrets(dir = stateDir()): Record<string, string> {
-  const raw = readJson(join(dir, SECRETS_FILE))
+  const raw = readJsonFile(join(dir, SECRETS_FILE))
   return z.record(z.string(), z.string()).parse(raw ?? {})
 }
 
 export function saveSecrets(secrets: Record<string, string>, dir = stateDir()): void {
-  writeJsonAtomic(join(dir, SECRETS_FILE), secrets, 0o600)
+  writeJsonAtomic(join(dir, SECRETS_FILE), secrets)
 }
 
 /**
@@ -110,28 +110,4 @@ export function ensureGeneratedSecrets(existing: Record<string, string>): {
     }
   }
   return { secrets, created }
-}
-
-function readJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw error
-  }
-}
-
-/**
- * Write through a temporary file and rename.
- *
- * A truncated state file is worse than a missing one: the engine would come up
- * believing the deployment is something it is not. Rename is atomic on the same
- * filesystem, so a crash mid-write leaves the previous state intact.
- */
-function writeJsonAtomic(path: string, value: unknown, mode: number): void {
-  mkdirSync(dirname(path), { recursive: true })
-  const temporary = `${path}.tmp`
-  writeFileSync(temporary, JSON.stringify(value, null, 2) + '\n', { mode })
-  chmodSync(temporary, mode)
-  renameSync(temporary, path)
 }

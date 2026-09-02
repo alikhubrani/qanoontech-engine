@@ -1,0 +1,15 @@
+@import 'tailwindcss';
+
+/*
+ * The engine inherits the application's design tokens (docs/design-system.md
+ * in the main repository) so the two read as one product.
+ */
+@theme {
+  --color-brand: #1e40af;
+  --color-brand-dark: #1e293b;
+  --color-accent: #d97706;
+  --color-ok: #059669;
+  --color-warn: #d97706;
+  --color-bad: #dc2626;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}

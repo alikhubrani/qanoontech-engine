@@ -270,6 +270,15 @@ program
   })
 
 program
+  .command('serve')
+  .description('Run the web interface')
+  .option('-p, --port <port>', 'port to listen on', '8080')
+  .action(async (options: { port: string }) => {
+    const { startServer } = await import('./server/index.js')
+    await startServer(Number(options.port) || 8080)
+  })
+
+program
   .command('ps')
   .description('What is running')
   .action(async () => {

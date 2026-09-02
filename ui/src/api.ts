@@ -1,0 +1,67 @@
+/** The API client. Same-origin, cookie-authenticated, no state of its own. */
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? null : JSON.stringify(body),
+    credentials: 'same-origin',
+  })
+  const json = (await response.json().catch(() => ({}))) as {
+    success?: boolean
+    data?: T
+    error?: string
+  }
+  if (!response.ok || json.success !== true) {
+    throw new ApiError(response.status, json.error ?? `Request failed (${response.status})`)
+  }
+  return json.data as T
+}
+
+export const api = {
+  get: <T>(url: string) => call<T>('GET', url),
+  post: <T>(url: string, body?: unknown) => call<T>('POST', url, body),
+  delete: <T>(url: string) => call<T>('DELETE', url),
+}
+
+// -- shapes the server sends ------------------------------------------------
+
+export interface ServiceView {
+  id: string
+  title: string
+  summary: string
+  required: boolean
+  state: string
+  health: string
+  status: string
+  image: string
+}
+
+export interface AuditEntry {
+  at: string
+  event: string
+  detail?: string
+  address?: string
+}
+
+export interface Overview {
+  engineVersion: string
+  version: string
+  previousVersion: string | null
+  bindAddress: string
+  appPort: number
+  modulesOn: string[]
+  plan: { deployable: true; services: number } | { deployable: false; problems: string[] }
+  services: ServiceView[]
+  dockerError?: string
+  audit: AuditEntry[]
+}

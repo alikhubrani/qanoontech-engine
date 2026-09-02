@@ -89,11 +89,17 @@ function run(
     })
 
     child.on('error', (error) => {
-      reject(
-        (error as NodeJS.ErrnoException).code === 'ENOENT'
-          ? new Error(`${command} is not installed, or is not on this container's PATH.`)
-          : error,
-      )
+      // A missing binary is a state the server has to describe, not a crash:
+      // it resolves like any other failure, with the shell's own 127.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        resolve({
+          code: 127,
+          stdout: '',
+          stderr: `${command} is not installed, or is not on this container's PATH.`,
+        })
+        return
+      }
+      reject(error)
     })
     child.on('close', (code) => resolve({ code: code ?? -1, stdout, stderr }))
   })

@@ -9,3 +9,5 @@ dist/
 *.pem
 *.key
 .state/
+ui/dist/
+ui/node_modules/
