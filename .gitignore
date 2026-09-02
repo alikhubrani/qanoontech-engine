@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+.env
+.env.*
+!.env.example
+
+# Never. Licence signing keys live in our infrastructure, not here.
+*.pem
+*.key
