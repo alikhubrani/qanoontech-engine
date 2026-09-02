@@ -261,3 +261,75 @@ describe('service actions', () => {
     expect(events).toContain('setup')
   })
 })
+
+describe('changing the password', () => {
+  it('requires the current password, then signs everyone out', async () => {
+    const cookie = await setUp()
+
+    const wrong = await app.inject({
+      method: 'POST',
+      url: '/api/password',
+      headers: { cookie },
+      payload: { current: 'not-the-password', next: 'a-brand-new-password-1' },
+    })
+    expect(wrong.statusCode).toBe(401)
+
+    const change = await app.inject({
+      method: 'POST',
+      url: '/api/password',
+      headers: { cookie },
+      payload: { current: PASSWORD, next: 'a-brand-new-password-1' },
+    })
+    expect(change.statusCode).toBe(200)
+
+    // The old session — the very one that made the change — is dead.
+    const after = await app.inject({ method: 'GET', url: '/api/overview', headers: { cookie } })
+    expect(after.statusCode).toBe(401)
+
+    // The old password no longer signs in; the new one does.
+    const old = await app.inject({ method: 'POST', url: '/api/session', payload: { password: PASSWORD } })
+    expect(old.statusCode).toBe(401)
+    const fresh = await app.inject({
+      method: 'POST',
+      url: '/api/session',
+      payload: { password: 'a-brand-new-password-1' },
+    })
+    expect(fresh.statusCode).toBe(200)
+  })
+
+  it('refuses a short new password and an unauthenticated caller', async () => {
+    const cookie = await setUp()
+    const short = await app.inject({
+      method: 'POST',
+      url: '/api/password',
+      headers: { cookie },
+      payload: { current: PASSWORD, next: 'short' },
+    })
+    expect(short.statusCode).toBe(400)
+
+    const anonymous = await app.inject({
+      method: 'POST',
+      url: '/api/password',
+      payload: { current: PASSWORD, next: 'a-brand-new-password-1' },
+    })
+    expect(anonymous.statusCode).toBe(401)
+  })
+
+  it('counts wrong current-password guesses toward the lockout', async () => {
+    const cookie = await setUp()
+    for (let i = 0; i < LOCKOUT_THRESHOLD; i++) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/password',
+        headers: { cookie },
+        payload: { current: 'guessing-here', next: 'a-brand-new-password-1' },
+      })
+    }
+    const locked = await app.inject({
+      method: 'POST',
+      url: '/api/session',
+      payload: { password: PASSWORD },
+    })
+    expect(locked.statusCode).toBe(429)
+  })
+})

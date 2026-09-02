@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { api, ApiError, type ServiceView } from '../api'
 import { S } from '../strings'
 import { ErrorNote, StatusBadge } from '@/components/status'
@@ -37,6 +38,7 @@ export function Services({
     setError(null)
     try {
       await api.post(`/api/services/${id}/${action}`)
+      toast.success(S.toastServiceDone(action, id))
       onChanged()
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : S.errorGeneric)

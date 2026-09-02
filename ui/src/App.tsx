@@ -6,6 +6,7 @@ import { Services } from './pages/Services'
 import { Deploy } from './pages/Deploy'
 import { Backups } from './pages/Backups'
 import { Licence } from './pages/Licence'
+import { Settings } from './pages/Settings'
 import { S } from './strings'
 import { AppShell } from '@/components/app-shell'
 import { navItems, type Page } from '@/components/app-shared'
@@ -98,8 +99,16 @@ export function App() {
           />
         ) : page === 'backups' ? (
           <Backups onChanged={() => void refresh()} />
-        ) : licence ? (
+        ) : page === 'licence' && licence ? (
           <Licence licence={licence} onChanged={() => void refresh()} />
+        ) : page === 'settings' ? (
+          <Settings
+            onSignedOut={() => {
+              setSignedIn(false)
+              setData(null)
+              setLicence(null)
+            }}
+          />
         ) : null}
       </AppShell>
       <Toaster position="top-right" />

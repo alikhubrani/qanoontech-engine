@@ -125,6 +125,29 @@ export class AuthStore {
     return Math.max(0, this.throttle().lockedUntil - Date.now())
   }
 
+  /**
+   * Change the password: prove the current one, set the new one, and sign
+   * everyone out — including whoever asked. A password change that leaves
+   * old sessions alive is half a password change, and the person changing it
+   * because they suspect a leak needs the whole one.
+   *
+   * The current-password check runs through the throttle on purpose: guessing
+   * at this door counts the same as guessing at the front one.
+   */
+  changePassword(current: string, next: string): { ok: boolean; reason?: string; lockedForMs?: number } {
+    const verified = this.verifyPassword(current)
+    if (!verified.ok) {
+      return {
+        ok: false,
+        reason: 'current',
+        ...(verified.lockedForMs !== undefined ? { lockedForMs: verified.lockedForMs } : {}),
+      }
+    }
+    this.setPassword(next, { force: true })
+    this.destroyAllSessions()
+    return { ok: true }
+  }
+
   // -- sessions -------------------------------------------------------------
 
   /** Create a session; the returned token goes in the cookie and is never stored. */

@@ -23,6 +23,7 @@ export type AuditEvent =
   | 'login-failed'
   | 'login-locked'
   | 'logout'
+  | 'password-changed'
   | 'service-start'
   | 'service-stop'
   | 'service-restart'

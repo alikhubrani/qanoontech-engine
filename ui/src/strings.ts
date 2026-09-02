@@ -157,6 +157,23 @@ export const S = {
   licenceEnforcedBanner:
     'The deployment has been stopped over its licence. The data is intact and backups continue. Install a valid licence to bring it back.',
 
+  // Settings
+  navSettings: 'Settings',
+  passwordTitle: 'Operator password',
+  passwordExplainer:
+    'Changing it signs out every session, including this one — you will sign back in with the new password.',
+  passwordCurrent: 'Current password',
+  passwordNew: 'New password',
+  passwordConfirm: 'Repeat the new password',
+  passwordMismatch: 'The two entries of the new password do not match.',
+  passwordSubmit: 'Change password',
+  passwordChanged: 'Password changed. Sign in again.',
+
+  // Toasts
+  toastBackupTaken: 'Backup taken and verified.',
+  toastDeployDone: 'Deployed.',
+  toastServiceDone: (action: string, service: string) => `${action} — ${service}`,
+
   // Errors
   errorGeneric: 'Something went wrong. The details are in the engine log.',
   workingEllipsis: 'Working…',

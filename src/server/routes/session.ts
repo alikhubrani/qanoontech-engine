@@ -63,6 +63,32 @@ export function sessionRoutes(app: FastifyInstance, ctx: ServerContext): void {
     return { success: true, data: {} }
   })
 
+  app.post('/api/password', async (request, reply) => {
+    const body = z
+      .object({ current: z.string().min(1), next: z.string().min(12).max(1024) })
+      .safeParse(request.body)
+    if (!body.success) {
+      return refuse(reply, 400, 'The new password must be at least 12 characters.')
+    }
+
+    const result = ctx.auth.changePassword(body.data.current, body.data.next)
+    if (!result.ok) {
+      if (result.lockedForMs !== undefined) {
+        ctx.audit.record('login-locked', { address: request.ip })
+        const minutes = Math.ceil(result.lockedForMs / 60_000)
+        return refuse(reply, 429, `Locked after repeated failures. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`)
+      }
+      ctx.audit.record('login-failed', { address: request.ip })
+      return refuse(reply, 401, 'That is not the current password.')
+    }
+
+    ctx.audit.record('password-changed', { address: request.ip })
+    // Every session is gone, this one included; the cookie is cleared so the
+    // client lands on sign-in rather than on a 401 it has to interpret.
+    reply.clearCookie(SESSION_COOKIE, { path: '/' })
+    return { success: true, data: {} }
+  })
+
   app.delete('/api/session', async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE]
     if (token) ctx.auth.destroySession(token)

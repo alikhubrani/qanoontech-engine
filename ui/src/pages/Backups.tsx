@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { api, ApiError, type BackupSet, type RestoreResult } from '../api'
 import { S } from '../strings'
 import { ErrorNote, StatusBadge } from '@/components/status'
@@ -84,7 +85,15 @@ export function Backups({ onChanged }: { onChanged: () => void }) {
           <CardDescription>{S.backupsExplainer}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button disabled={busy} onClick={() => void act(async () => void (await api.post('/api/backups')))}>
+          <Button
+            disabled={busy}
+            onClick={() =>
+              void act(async () => {
+                await api.post('/api/backups')
+                toast.success(S.toastBackupTaken)
+              })
+            }
+          >
             {busy ? S.backupTaking : S.backupTakeNow}
           </Button>
         </CardContent>

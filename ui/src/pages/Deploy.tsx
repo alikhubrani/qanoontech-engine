@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { toast } from 'sonner'
 import { api, ApiError, type DeployStatus, type PreflightCheck } from '../api'
 import { S } from '../strings'
 import { ErrorNote, StatusBadge } from '@/components/status'
@@ -63,6 +64,7 @@ export function Deploy({
   onChanged: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
+  const [deploying, setDeploying] = useState(false)
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4">
@@ -73,11 +75,12 @@ export function Deploy({
       <VersionSection
         version={version}
         previousVersion={previousVersion}
+        deploying={deploying}
         onError={setError}
         onChanged={onChanged}
       />
       <PreflightSection />
-      <DeploySection onChanged={onChanged} />
+      <DeploySection onChanged={onChanged} onRunning={setDeploying} />
     </div>
   )
 }
@@ -185,6 +188,7 @@ function SettingsSection({
         defaultLanguage: settings!.defaultLanguage,
       })
       setSaved(true)
+      toast.success(S.settingsSaved)
       onChanged()
     } catch (caught) {
       onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
@@ -315,6 +319,7 @@ function ModulesSection({
         await api.put(`/api/modules/${module.id}/config`, { config: configDraft })
       }
       setSaved(true)
+      toast.success(S.moduleConfigSaved)
       load()
       onChanged()
     } catch (caught) {
@@ -399,22 +404,28 @@ function ModulesSection({
 function VersionSection({
   version,
   previousVersion,
+  deploying,
   onError,
   onChanged,
 }: {
   version: string
   previousVersion: string | null
+  deploying: boolean
   onError: (message: string | null) => void
   onChanged: () => void
 }) {
   const [available, setAvailable] = useState<string[]>([])
+  const [detail, setDetail] = useState<string | null>(null)
   const [chosen, setChosen] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     void api
-      .get<{ versions: string[] }>('/api/versions')
-      .then((data) => setAvailable(data.versions))
+      .get<{ versions: string[]; detail?: string }>('/api/versions')
+      .then((data) => {
+        setAvailable(data.versions)
+        setDetail(data.detail ?? null)
+      })
       .catch(() => undefined)
   }, [])
 
@@ -468,15 +479,21 @@ function VersionSection({
               placeholder={S.versionChoose}
             />
           )}
-          <Button disabled={busy || !chosen} onClick={() => act('/api/version', { version: chosen })}>
+          <Button
+            disabled={busy || deploying || !chosen}
+            onClick={() => act('/api/version', { version: chosen })}
+          >
             {S.versionSet}
           </Button>
           {previousVersion && (
-            <Button variant="outline" disabled={busy} onClick={() => act('/api/rollback')}>
+            <Button variant="outline" disabled={busy || deploying} onClick={() => act('/api/rollback')}>
               {S.versionRollback}
             </Button>
           )}
         </div>
+        {available.length === 0 && detail && (
+          <p className="text-xs text-muted-foreground">{detail}</p>
+        )}
         {previousVersion && <p className="text-xs text-muted-foreground">{S.versionRollbackWarn}</p>}
       </CardContent>
     </Card>
@@ -529,15 +546,23 @@ function PreflightSection() {
   )
 }
 
-function DeploySection({ onChanged }: { onChanged: () => void }) {
+function DeploySection({
+  onChanged,
+  onRunning,
+}: {
+  onChanged: () => void
+  onRunning: (running: boolean) => void
+}) {
   const [status, setStatus] = useState<DeployStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
   const poll = useCallback(async () => {
     const data = await api.get<DeployStatus | null>('/api/deploy').catch(() => null)
     setStatus(data)
+    onRunning(data?.running ?? false)
     return data
-  }, [])
+  }, [onRunning])
 
   useEffect(() => {
     void poll()
@@ -547,10 +572,20 @@ function DeploySection({ onChanged }: { onChanged: () => void }) {
     if (!status?.running) return
     const timer = setInterval(async () => {
       const next = await poll()
-      if (next && !next.running) onChanged()
+      if (next && !next.running) {
+        onChanged()
+        if (next.ok === true) toast.success(S.toastDeployDone)
+      }
     }, 2000)
     return () => clearInterval(timer)
   }, [status?.running, poll, onChanged])
+
+  // Follow the log while it grows — the operator is watching a deploy, and
+  // the interesting line is always the newest one.
+  useEffect(() => {
+    const viewport = logRef.current?.querySelector('[data-slot="scroll-area-viewport"]')
+    if (viewport && status?.running) viewport.scrollTop = viewport.scrollHeight
+  }, [status?.log, status?.running])
 
   async function start() {
     setError(null)
@@ -582,7 +617,7 @@ function DeploySection({ onChanged }: { onChanged: () => void }) {
           )}
         </div>
         {status?.log && (
-          <ScrollArea className="h-80 rounded-lg bg-brand-dark p-4">
+          <ScrollArea ref={logRef} className="h-80 rounded-lg bg-brand-dark p-4">
             <pre className="font-mono text-xs leading-relaxed text-slate-100">{status.log}</pre>
           </ScrollArea>
         )}
