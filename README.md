@@ -55,7 +55,8 @@ docker run -d --name qanoontech-engine \
   ghcr.io/alikhubrani/qanoontech-engine:latest
 ```
 
-Everything after that happens at `http://127.0.0.1:8081/`: licence, registry
+Everything after that happens at `http://<the box's address>:8081/`, from any
+machine on the firm's network: licence, registry
 token, preflight checks, version, configuration, modules, deploy.
 
 ## Working on it
