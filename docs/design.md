@@ -1,6 +1,6 @@
 # QanoonTech Engine — design
 
-**Status: proposed. Nothing here is built yet.** This document is the decision
+**Status: phase 1 built; phases 2–5 proposed.** This document is the decision
 record and the plan. Where it states a decision, that decision was made
 deliberately and the alternative is written down next to it, so that changing
 course later is an argument with a known cost rather than a rediscovery.
@@ -504,7 +504,7 @@ next begins.
 
 | phase | what | done when |
 | --- | --- | --- |
-| **1** | Catalogue, renderer, container interface, compose generation. CLI only, no UI | a stack can be brought up and down from the catalogue alone |
+| **1** *(built, not yet run against Docker)* | Catalogue, renderer, container interface, compose generation. CLI only, no UI | a stack can be brought up and down from the catalogue alone |
 | **2** | Web UI: Overview, Services, logs, start/stop/restart. Auth, throttle, audit log | an operator runs the deployment from a browser |
 | **3** | Licence: format, offline verification, heartbeat client, grace state machine, enforcement, offline override | enforcement fires correctly on a test box and clears with a new licence |
 | **4** | Bootstrap wizard, preflight, versions and rollback, self-update, `rescue.sh` | a clean box goes from one `docker run` to a running firm in a browser |
@@ -527,3 +527,10 @@ The licence service is built alongside phase 3 and lives in its own repository.
 - **Seat enforcement.** The licence carries a seat limit. Nothing yet decides
   what happens when a firm exceeds it, and the answer should not be "stop the
   app".
+- **The engine is not on the deployment's network.** It is started by
+  `docker run`, so it is not part of the compose project it renders, and it
+  therefore cannot reach `postgres` by name. That is correct for isolation and
+  wrong for backups, which need `pg_dump` against the database. Either the
+  engine attaches itself to the project network after applying, or the backup
+  runs as a short-lived container inside the project. Decide before phase 5;
+  it is the kind of thing that is cheap now and structural later.

@@ -8,3 +8,4 @@ dist/
 # Never. Licence signing keys live in our infrastructure, not here.
 *.pem
 *.key
+.state/

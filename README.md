@@ -4,8 +4,11 @@ The control plane for a QanoonTech deployment. It installs the system, updates
 it, configures it, turns optional modules on and off, takes and restores
 backups, and enforces the licence.
 
-**Status: design only.** Nothing here is built yet. The plan is
-[`docs/design.md`](docs/design.md), and it is the specification — read that
+**Status: phase 1.** The module catalogue, resolution, the compose renderer and
+the command line exist and are tested. There is no web interface yet, no
+licence verification yet, and no backups yet — see
+[Phasing](docs/design.md#phasing). The plan is
+[`docs/design.md`](docs/design.md), and it is the specification: read that
 first.
 
 ---
@@ -53,6 +56,33 @@ docker run -d --name qanoontech-engine \
 
 Everything after that happens at `http://127.0.0.1:8081/`: licence, registry
 token, preflight checks, version, configuration, modules, deploy.
+
+## Working on it
+
+```bash
+npm install
+npm run type-check
+npm test
+ENGINE_STATE_DIR=./.state npm run engine -- status
+```
+
+The command line is not a stopgap for the web interface. The renderer is the
+part that can be wrong in ways a UI hides — a bad compose file looks like a
+working button — so it is driven from here first, where a bad render is a diff
+you can read. Afterwards it stays: it is what `rescue.sh` and CI use, and it is
+how a deployment is worked on when the browser path is the thing that broke.
+
+```
+engine status                      what this deployment is configured to be
+engine modules                     the catalogue, and what is on
+engine enable <module>             turn an optional module on
+engine config <module> '<json>'    set a module's configuration
+engine version <version>           choose the QanoonTech version
+engine secrets init                generate any missing secret
+engine render --stdout             render the compose file
+engine apply                       render, check, pull, bring it up
+engine logs <service>              recent output from one service
+```
 
 ## Licence
 
