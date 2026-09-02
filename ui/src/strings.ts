@@ -93,6 +93,31 @@ export const S = {
   deployDone: 'Deployed.',
   deployFailed: 'Deploy failed — the log has the reason.',
 
+  // Backups
+  navBackups: 'Backups',
+  backupsTitle: 'Backups',
+  backupsExplainer:
+    'Taken nightly, before every update, and before every restore. Kept on this box; the offsite copy is the next piece of work.',
+  backupTakeNow: 'Back up now',
+  backupTaking: 'Backing up…',
+  backupRestore: 'Restore',
+  backupDelete: 'Delete',
+  backupRestoreConfirm: (id: string) =>
+    `Restore ${id}? The application will stop during the restore. A safety backup is taken first, so this is reversible.`,
+  backupDeleteConfirm: (id: string) => `Delete backup ${id}? This cannot be undone.`,
+  backupEmpty: 'No backups yet.',
+  backupTrigger: {
+    manual: 'manual',
+    scheduled: 'nightly',
+    'pre-update': 'before update',
+    'pre-restore': 'safety copy',
+  } as Record<string, string>,
+  restoreStepsTitle: 'Restore steps',
+  supportTitle: 'Support bundle',
+  supportExplainer:
+    'A redacted snapshot of this deployment — states, logs, configuration — for sending to support. No documents, no database rows, no secrets. Nothing is sent anywhere; you download it and decide.',
+  supportDownload: 'Download support bundle',
+
   // Licence
   navLicence: 'Licence',
   licenceTitle: 'Licence',

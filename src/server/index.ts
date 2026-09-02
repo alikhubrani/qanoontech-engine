@@ -9,13 +9,16 @@ import { AuditLog } from './audit.js'
 import { AuthStore } from './auth.js'
 import type { ServerContext } from './context.js'
 import { checkHost, checkOrigin, defaultAllowedHosts, refuse } from './guards.js'
+import { startBackupLoop } from './backup-tick.js'
 import { JobRunner } from './jobs.js'
 import { startLicenceLoop } from './licence-tick.js'
+import { backupRoutes } from './routes/backups.js'
 import { deployRoutes } from './routes/deploy.js'
 import { licenceRoutes } from './routes/licence.js'
 import { overviewRoutes } from './routes/overview.js'
 import { SESSION_COOKIE, sessionRoutes } from './routes/session.js'
 import { serviceRoutes } from './routes/services.js'
+import { supportRoutes } from './routes/support.js'
 
 /**
  * The engine's web server.
@@ -85,7 +88,12 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   serviceRoutes(app, ctx)
   licenceRoutes(app, ctx)
   deployRoutes(app, ctx, new JobRunner(dir))
-  if (options.licenceLoop ?? true) startLicenceLoop(app, ctx)
+  backupRoutes(app, ctx)
+  supportRoutes(app, ctx)
+  if (options.licenceLoop ?? true) {
+    startLicenceLoop(app, ctx)
+    startBackupLoop(app, ctx)
+  }
 
   const uiDir = options.uiDir ?? defaultUiDir()
   if (uiDir && existsSync(join(uiDir, 'index.html'))) {

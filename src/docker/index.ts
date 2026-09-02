@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { findModule } from '../catalogue/index.js'
-import { PROJECT_NAME } from '../render/compose.js'
+import { NETWORK_NAME, PROJECT_NAME } from '../render/compose.js'
 import { stateDir } from '../state/store.js'
 
 /**
@@ -52,6 +52,8 @@ export interface DockerOptions {
   readonly onOutput?: (chunk: string) => void
   /** Fed to stdin and closed. For credentials, so they never hit argv. */
   readonly input?: string
+  /** Extra environment for the child. For credentials, so they never hit argv. */
+  readonly env?: Readonly<Record<string, string>>
 }
 
 /** Reject anything the catalogue does not define, before it reaches Docker. */
@@ -77,6 +79,7 @@ function run(
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
       stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      env: options.env ? { ...process.env, ...options.env } : process.env,
     })
     if (options.input !== undefined) {
       child.stdin?.write(options.input)
@@ -265,4 +268,113 @@ export async function selfUpdate(
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\''`)}'`
+}
+
+// ---------------------------------------------------------------------------
+// Backup helpers
+// ---------------------------------------------------------------------------
+//
+// The engine is deliberately not on the deployment's network, so it cannot
+// reach `postgres` by name — and its own image carries no database tools. Both
+// gaps close the same way: a short-lived helper container, run on the project
+// network, from the same pinned postgres image the deployment itself runs.
+// Same image, same tools, so pg_dump can never be newer than the server it is
+// dumping.
+//
+// These are the only verbs here that run `sh -c`. The scripts are fixed
+// templates; the only variable pieces are file paths built from a
+// timestamp-shaped id the backup service validates, and credentials, which
+// travel as environment variables — never in the command line.
+
+const POSTGRES_HELPER_IMAGE = 'postgres:15-alpine'
+const BUSYBOX_HELPER_IMAGE = 'busybox'
+
+/** The engine's own volume, as the README and rescue.sh mount it. */
+export const ENGINE_VOLUME = 'qanoontech_engine'
+export const PROJECT_NETWORK = `${PROJECT_NAME}_${NETWORK_NAME}`
+const UPLOADS_VOLUME = `${PROJECT_NAME}_uploads_data`
+
+export interface DatabaseTarget {
+  readonly dbName: string
+  readonly dbUser: string
+  readonly password: string
+}
+
+/** pg_dump to a gzipped SQL file on the engine volume, then verify the gzip. */
+export async function dumpDatabase(
+  target: DatabaseTarget,
+  outPath: string,
+  options?: DockerOptions,
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--network', PROJECT_NETWORK,
+      '--volume', `${ENGINE_VOLUME}:/state`,
+      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      POSTGRES_HELPER_IMAGE,
+      'sh', '-c',
+      // --clean --if-exists so a restore replays onto a live schema; the
+      // trailing gzip -t means a dump that does not verify never exists.
+      `pg_dump -h postgres --clean --if-exists | gzip > ${outPath} && gzip -t ${outPath}`,
+    ],
+    {
+      ...options,
+      env: { PGPASSWORD: target.password, PGUSER: target.dbUser, PGDATABASE: target.dbName },
+    },
+  )
+}
+
+export async function restoreDatabase(
+  target: DatabaseTarget,
+  inPath: string,
+  options?: DockerOptions,
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--network', PROJECT_NETWORK,
+      '--volume', `${ENGINE_VOLUME}:/state:ro`,
+      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      POSTGRES_HELPER_IMAGE,
+      'sh', '-c',
+      `gunzip -c ${inPath} | psql -h postgres --set ON_ERROR_STOP=0 -q`,
+    ],
+    {
+      ...options,
+      env: { PGPASSWORD: target.password, PGUSER: target.dbUser, PGDATABASE: target.dbName },
+    },
+  )
+}
+
+export async function archiveUploads(outPath: string, options?: DockerOptions): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--volume', `${UPLOADS_VOLUME}:/uploads:ro`,
+      '--volume', `${ENGINE_VOLUME}:/state`,
+      BUSYBOX_HELPER_IMAGE,
+      'sh', '-c',
+      `tar czf ${outPath} -C /uploads . && gzip -t ${outPath}`,
+    ],
+    options,
+  )
+}
+
+export async function restoreUploads(inPath: string, options?: DockerOptions): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--volume', `${UPLOADS_VOLUME}:/uploads`,
+      '--volume', `${ENGINE_VOLUME}:/state:ro`,
+      BUSYBOX_HELPER_IMAGE,
+      'sh', '-c',
+      `tar xzf ${inPath} -C /uploads`,
+    ],
+    options,
+  )
 }

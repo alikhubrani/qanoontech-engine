@@ -1,3 +1,4 @@
+import { listBackups, takeBackup } from '../backup/service.js'
 import * as docker from '../docker/index.js'
 import { buildPlan, writePlan } from '../plan.js'
 import { REGISTRY, storedRegistryAuth } from '../registry.js'
@@ -26,7 +27,7 @@ export interface DeployJob {
   ok?: boolean
   log: string
   /** What the deploy is doing now, for a one-line status. */
-  step: 'render' | 'validate' | 'pull' | 'apply' | 'done'
+  step: 'render' | 'validate' | 'pull' | 'backup' | 'apply' | 'done'
 }
 
 export class JobRunner {
@@ -104,9 +105,22 @@ export class JobRunner {
         return
       }
 
-      // NOTE(phase 5): the design takes a backup here, between pull and
-      // apply. The backup machinery does not exist yet; when it does, it
-      // slots in at this line and a failed backup aborts like a failed pull.
+      // Between pull and apply: the backup that makes a rollback possible.
+      // A failed backup aborts exactly like a failed pull — nothing running
+      // has been touched — with one exception: the very first deploy, where
+      // there is no database yet and nothing to protect.
+      if (listBackups(this.dir).length > 0 || (await this.databaseExists())) {
+        job.step = 'backup'
+        this.append(job, '\n── Backup before touching anything ──\n')
+        const backup = await takeBackup('pre-update', this.dir)
+        this.append(job, backup.detail + '\n')
+        if (!backup.ok) {
+          this.append(job, 'Deploy stopped. Nothing running has been touched.\n')
+          this.finish(job, false)
+          return
+        }
+      }
+
       job.step = 'apply'
       this.append(job, '\n── Applying ──\n')
       const applied = await docker.apply({ composeFile: path, onOutput })
@@ -115,6 +129,12 @@ export class JobRunner {
       this.append(job, `\n${error instanceof Error ? error.message : String(error)}\n`)
       this.finish(job, false)
     }
+  }
+
+  /** Is there a running postgres to dump? First deploys have none. */
+  private async databaseExists(): Promise<boolean> {
+    const result = await docker.ps()
+    return result.code === 0 && result.stdout.includes('postgres')
   }
 
   private finish(job: DeployJob, ok: boolean): void {

@@ -107,3 +107,18 @@ export interface ModuleInfo {
   required: boolean
   cost: { image: string; memory: string; cpus: string }
 }
+
+export interface BackupSet {
+  id: string
+  takenAt: string
+  trigger: string
+  appVersion: string
+  includesUploads: boolean
+  databaseBytes: number
+  uploadsBytes: number
+}
+
+export interface RestoreResult {
+  ok: boolean
+  steps: { step: string; ok: boolean; detail?: string }[]
+}

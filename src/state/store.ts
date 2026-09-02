@@ -28,6 +28,15 @@ const settingsSchema = z.object({
   defaultLanguage: z.enum(['ar', 'en']).default('ar'),
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('warn'),
   maxFileSizeBytes: z.number().int().positive().default(52_428_800),
+  /**
+   * The nightly backup runs at this hour, read in `timezone`. Two in the
+   * morning Riyadh time by default: a full dump and a tar of every document
+   * is not something to run while the office is working.
+   */
+  backupHour: z.number().int().min(0).max(23).default(2),
+  backupRetentionDays: z.number().int().min(1).max(3650).default(30),
+  /** Where documents are already copied offsite, the local set can be the database alone. */
+  backupIncludeUploads: z.boolean().default(true),
 })
 
 const stateSchema = z.object({

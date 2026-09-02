@@ -36,6 +36,12 @@ export type AuditEvent =
   | 'module-disabled'
   | 'module-configured'
   | 'deploy-started'
+  | 'backup-taken'
+  | 'backup-failed'
+  | 'backup-deleted'
+  | 'restore-started'
+  | 'restore-completed'
+  | 'restore-failed'
 
 export interface AuditEntry {
   readonly at: string
