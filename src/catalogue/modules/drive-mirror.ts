@@ -37,7 +37,7 @@ export const driveMirror = defineModule({
   defaultEnabled: false,
   entitlement: 'module.drive-mirror',
   image: { kind: 'versioned', repository: 'ghcr.io/alikhubrani/qanoontech-drive-mirror' },
-  cost: { image: '~120 MB', memory: '512M', cpus: '0.5' },
+  cost: { image: '~450 MB', memory: '512M', cpus: '0.5' },
   requires: ['app', 'postgres'],
   config,
   secrets: [
