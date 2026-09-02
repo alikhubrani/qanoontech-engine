@@ -23,9 +23,15 @@ const config = z.object({
    * everything: offered both, a recogniser frequently prefers a Latin reading
    * of an Arabic shape, and a Saudi judgment comes back as noise.
    */
-  languages: z.array(z.enum(['ar', 'en'])).min(1).default(['ar', 'en']),
+  languages: z.array(z.enum(['ar', 'en'])).min(1).default(['ar', 'en']).meta({
+    title: 'Languages',
+    description: 'Scripts to load recognition models for.',
+  }),
   /** Recognition is CPU-bound. More than one on a small box starves the app. */
-  maxConcurrency: z.number().int().min(1).max(8).default(1),
+  maxConcurrency: z.number().int().min(1).max(8).default(1).meta({
+    title: 'Concurrent pages',
+    description: 'Recognition is CPU-bound; more than one on a small box starves the application.',
+  }),
 }).prefault({})
 
 export const ocr = defineModule({
@@ -39,6 +45,7 @@ export const ocr = defineModule({
   cost: { image: '~2 GB', memory: '2G', cpus: '2' },
   requires: ['app'],
   config,
+  secrets: [],
   volumes: ['uploads_data'],
   render: (ctx) => ({
     image: `ghcr.io/alikhubrani/qanoontech-ocr:${ctx.version}`,

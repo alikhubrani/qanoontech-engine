@@ -19,6 +19,7 @@ export const app = defineModule({
   cost: { image: '~600 MB', memory: '2G', cpus: '2' },
   requires: ['postgres'],
   config: z.void(),
+  secrets: [],
   volumes: ['uploads_data', 'logs_data'],
   render: (ctx) => {
     const { settings } = ctx

@@ -102,6 +102,21 @@ export interface DeploymentSettings {
   readonly maxFileSizeBytes: number
 }
 
+/**
+ * A credential a module needs, declared so the panel can ask for it by name
+ * with a proper field — and so a missing one is a well-worded error before it
+ * is a render failure. Declarations drive the form; the renderer's own
+ * missing-secret refusal remains the enforcement.
+ */
+export interface ModuleSecret {
+  /** The secret-store name, e.g. GOOGLE_SERVICE_ACCOUNT_KEY. */
+  readonly name: string
+  readonly title: string
+  readonly help: string
+  /** Which input widget the panel shows: a JSON paste/upload, a token, or plain text. */
+  readonly kind: 'json' | 'token' | 'text'
+}
+
 export interface ModuleDefinition<TConfig = void> {
   readonly id: string
   readonly title: string
@@ -133,6 +148,9 @@ export interface ModuleDefinition<TConfig = void> {
    * that cannot describe its own configuration cannot be shipped.
    */
   readonly config: z.ZodType<TConfig>
+
+  /** Credentials this module needs, for the panel's form. Empty when none. */
+  readonly secrets: readonly ModuleSecret[]
 
   /** Named volumes this module needs declared. */
   readonly volumes: readonly string[]

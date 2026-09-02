@@ -268,3 +268,64 @@ describe('the support bundle', () => {
     }
   })
 })
+
+describe('modules describe themselves to the panel', () => {
+  it('exposes the form schema derived from the validation schema', async () => {
+    const cookie = await signIn()
+    const response = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
+    const modules = response.json().data.modules as {
+      id: string
+      configSchema: { properties?: Record<string, { title?: string }> } | null
+      secrets: { name: string; set: boolean }[]
+    }[]
+
+    const mirror = modules.find((m) => m.id === 'drive-mirror')!
+    expect(mirror.configSchema?.properties?.['sharedDriveId']?.title).toBe('Shared Drive ID')
+    expect(mirror.secrets.map((s) => s.name)).toEqual(['GOOGLE_SERVICE_ACCOUNT_KEY'])
+    expect(mirror.secrets[0]!.set).toBe(false)
+
+    // A module with no config renders no form — null, not an empty object.
+    expect(modules.find((m) => m.id === 'postgres')!.configSchema).toBeNull()
+  })
+
+  it('accepts a declared secret, reports it as set, and never echoes it', async () => {
+    const cookie = await signIn()
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/modules/drive-mirror/secrets',
+      headers: { cookie },
+      payload: { values: { GOOGLE_SERVICE_ACCOUNT_KEY: '{"type":"service_account"}' } },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(JSON.stringify(put.json())).not.toContain('service_account')
+
+    const listing = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
+    const mirror = listing
+      .json()
+      .data.modules.find((m: { id: string }) => m.id === 'drive-mirror')
+    expect(mirror.secrets[0].set).toBe(true)
+    expect(JSON.stringify(listing.json())).not.toContain('service_account')
+
+    const { loadSecrets } = await import('../state/store.js')
+    expect(loadSecrets(dir)['GOOGLE_SERVICE_ACCOUNT_KEY']).toBe('{"type":"service_account"}')
+  })
+
+  it('refuses a secret the module does not declare — this is not a general write path', async () => {
+    const cookie = await signIn()
+    for (const [module, name] of [
+      ['drive-mirror', 'DB_PASSWORD'],
+      ['drive-mirror', 'JWT_SECRET'],
+      ['ocr', 'GOOGLE_SERVICE_ACCOUNT_KEY'],
+    ] as const) {
+      const put = await app.inject({
+        method: 'PUT',
+        url: `/api/modules/${module}/secrets`,
+        headers: { cookie },
+        payload: { values: { [name]: 'overwrite-attempt' } },
+      })
+      expect(put.statusCode, `${module}/${name}`).toBe(422)
+    }
+    const { loadSecrets } = await import('../state/store.js')
+    expect(loadSecrets(dir)['DB_PASSWORD']).not.toBe('overwrite-attempt')
+  })
+})

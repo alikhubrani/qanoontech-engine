@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, type DeployStatus, type PreflightCheck } from '../api'
 import { Badge, Button, Card, ErrorNote, Input } from '../components'
+import {
+  SchemaForm,
+  SecretFields,
+  type ObjectSchema,
+  type SecretDeclaration,
+} from '../components/module-form'
 import { S } from '../strings'
 
 interface ModuleRow {
@@ -11,6 +17,8 @@ interface ModuleRow {
   cost: { image: string; memory: string; cpus: string }
   enabled: boolean
   config: unknown
+  configSchema: ObjectSchema | null
+  secrets: SecretDeclaration[]
 }
 
 interface Settings {
@@ -214,9 +222,11 @@ function ModulesSection({
   onChanged: () => void
 }) {
   const [modules, setModules] = useState<ModuleRow[]>([])
-  const [configFor, setConfigFor] = useState<string | null>(null)
-  const [configText, setConfigText] = useState('')
+  const [open, setOpen] = useState<string | null>(null)
+  const [configDraft, setConfigDraft] = useState<Record<string, unknown>>({})
+  const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   const load = useCallback(() => {
     void api
@@ -240,23 +250,36 @@ function ModulesSection({
     }
   }
 
-  async function saveConfig(id: string) {
+  function openConfig(module: ModuleRow) {
+    if (open === module.id) {
+      setOpen(null)
+      return
+    }
+    setOpen(module.id)
+    setSaved(false)
+    setConfigDraft((module.config as Record<string, unknown>) ?? {})
+    setSecretDraft({})
+  }
+
+  async function save(module: ModuleRow) {
     setBusy(true)
     onError(null)
+    setSaved(false)
     try {
-      const parsed: unknown = JSON.parse(configText)
-      await api.put(`/api/modules/${id}/config`, { config: parsed })
-      setConfigFor(null)
+      // Secrets first: config validation may depend on the module being
+      // deployable, and a failed config save should not discard typed keys.
+      if (Object.keys(secretDraft).length > 0) {
+        await api.put(`/api/modules/${module.id}/secrets`, { values: secretDraft })
+        setSecretDraft({})
+      }
+      if (module.configSchema) {
+        await api.put(`/api/modules/${module.id}/config`, { config: configDraft })
+      }
+      setSaved(true)
       load()
       onChanged()
     } catch (caught) {
-      onError(
-        caught instanceof ApiError
-          ? caught.message
-          : caught instanceof SyntaxError
-            ? 'That is not valid JSON.'
-            : S.errorGeneric,
-      )
+      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
     } finally {
       setBusy(false)
     }
@@ -282,14 +305,9 @@ function ModulesSection({
                   <p className="mt-0.5 text-sm text-slate-500">{module.summary}</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  <Button
-                    onClick={() => {
-                      setConfigFor(configFor === module.id ? null : module.id)
-                      setConfigText(JSON.stringify(module.config ?? {}, null, 2))
-                    }}
-                  >
-                    {S.moduleConfigure}
-                  </Button>
+                  {(module.configSchema || module.secrets.length > 0) && (
+                    <Button onClick={() => openConfig(module)}>{S.moduleConfigure}</Button>
+                  )}
                   <Button
                     variant={module.enabled ? 'danger' : 'primary'}
                     disabled={busy}
@@ -299,16 +317,28 @@ function ModulesSection({
                   </Button>
                 </div>
               </div>
-              {configFor === module.id && (
-                <div className="mt-3 space-y-2">
-                  <textarea
-                    className="h-24 w-full rounded-md border border-slate-300 p-3 font-mono text-xs"
-                    value={configText}
-                    onChange={(event) => setConfigText(event.target.value)}
-                  />
-                  <Button variant="primary" disabled={busy} onClick={() => saveConfig(module.id)}>
-                    {S.moduleConfigSave}
-                  </Button>
+              {open === module.id && (
+                <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                  {module.secrets.length > 0 && (
+                    <SecretFields
+                      secrets={module.secrets}
+                      values={secretDraft}
+                      onChange={setSecretDraft}
+                    />
+                  )}
+                  {module.configSchema && (
+                    <SchemaForm
+                      schema={module.configSchema}
+                      value={configDraft}
+                      onChange={setConfigDraft}
+                    />
+                  )}
+                  <div className="flex items-center gap-3">
+                    <Button variant="primary" disabled={busy} onClick={() => save(module)}>
+                      {busy ? S.workingEllipsis : S.moduleConfigSave}
+                    </Button>
+                    {saved && <span className="text-sm text-ok">{S.moduleConfigSaved}</span>}
+                  </div>
                 </div>
               )}
             </li>

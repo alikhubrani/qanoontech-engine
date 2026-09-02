@@ -19,6 +19,7 @@ export const postgres = defineModule({
   cost: { image: '~250 MB', memory: '2G', cpus: '2' },
   requires: [],
   config: z.void(),
+  secrets: [],
   volumes: ['postgres_data'],
   render: (ctx) => ({
     image: 'postgres:15-alpine',

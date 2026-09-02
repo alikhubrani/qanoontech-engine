@@ -18,10 +18,15 @@ import { defineModule } from '../types.js'
  * that may well be the reason you are restoring.
  */
 const config = z.object({
-  /** The Shared Drive's id. The service account must be a Content Manager on it. */
-  sharedDriveId: z.string().min(1),
-  /** Files larger than this are skipped rather than retried forever. */
-  maxFileSizeBytes: z.number().int().positive().default(1_073_741_824),
+  sharedDriveId: z.string().min(1).meta({
+    title: 'Shared Drive ID',
+    description:
+      'From the drive’s URL: the part after /folders/ or /drive/. The service account must be a Content Manager on this drive.',
+  }),
+  maxFileSizeBytes: z.number().int().positive().default(1_073_741_824).meta({
+    title: 'Largest file to copy (bytes)',
+    description: 'Files larger than this are skipped rather than retried forever.',
+  }),
 })
 
 export const driveMirror = defineModule({
@@ -35,6 +40,14 @@ export const driveMirror = defineModule({
   cost: { image: '~120 MB', memory: '512M', cpus: '0.5' },
   requires: ['app'],
   config,
+  secrets: [
+    {
+      name: 'GOOGLE_SERVICE_ACCOUNT_KEY',
+      title: 'Service account key',
+      help: 'The JSON key file downloaded from Google Cloud for the service account. Paste it or choose the file; it is stored on this box and never shown again.',
+      kind: 'json',
+    },
+  ],
   volumes: ['uploads_data'],
   render: (ctx) => ({
     image: `ghcr.io/alikhubrani/qanoontech-drive-mirror:${ctx.version}`,

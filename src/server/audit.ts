@@ -35,6 +35,7 @@ export type AuditEvent =
   | 'module-enabled'
   | 'module-disabled'
   | 'module-configured'
+  | 'module-secret-set'
   | 'deploy-started'
   | 'backup-taken'
   | 'backup-failed'

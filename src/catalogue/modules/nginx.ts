@@ -18,6 +18,7 @@ export const nginx = defineModule({
   cost: { image: '~60 MB', memory: '512M', cpus: '0.5' },
   requires: ['app'],
   config: z.void(),
+  secrets: [],
   volumes: ['uploads_data'],
   render: (ctx) => ({
     image: `ghcr.io/alikhubrani/qanoontech-nginx:${ctx.version}`,

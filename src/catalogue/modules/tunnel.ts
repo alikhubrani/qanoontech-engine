@@ -24,7 +24,12 @@ const config = z.object({
    */
   privateRange: z
     .string()
-    .regex(/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/, 'Expected CIDR notation, e.g. 10.77.42.0/24'),
+    .regex(/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/, 'Expected CIDR notation, e.g. 10.77.42.0/24')
+    .meta({
+      title: 'Private range (CIDR)',
+      description:
+        'The range advertised to WARP, e.g. 10.77.42.0/24. Avoid 192.168.0.x and 192.168.1.x — an overlap with a staff member’s home router makes the system unreachable from that house.',
+    }),
 })
 
 export const tunnel = defineModule({
@@ -41,6 +46,14 @@ export const tunnel = defineModule({
   cost: { image: '~40 MB', memory: '256M', cpus: '0.5' },
   requires: ['nginx'],
   config,
+  secrets: [
+    {
+      name: 'CLOUDFLARE_TUNNEL_TOKEN',
+      title: 'Tunnel token',
+      help: 'From Cloudflare Zero Trust → Networks → Tunnels, when creating the tunnel.',
+      kind: 'token',
+    },
+  ],
   volumes: [],
   render: (ctx) => ({
     image: 'cloudflare/cloudflared:latest',

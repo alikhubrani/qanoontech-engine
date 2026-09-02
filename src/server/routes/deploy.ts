@@ -119,6 +119,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
 
   app.get('/api/modules', async () => {
     const state = loadState(ctx.dir)
+    const secrets = loadSecrets(ctx.dir)
     return {
       success: true,
       data: {
@@ -131,9 +132,48 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
           entitlement: module.entitlement ?? null,
           enabled: module.required || state.enabled.includes(module.id),
           config: state.config[module.id] ?? null,
+          // The form is rendered from the same schema that validates — one
+          // source, two views. See docs/module-config.md.
+          configSchema: configSchemaOf(module),
+          secrets: module.secrets.map((secret) => ({
+            name: secret.name,
+            title: secret.title,
+            help: secret.help,
+            kind: secret.kind,
+            // Whether one is stored. The value itself has no read path.
+            set: Boolean(secrets[secret.name]),
+          })),
         })),
       },
     }
+  })
+
+  app.put('/api/modules/:id/secrets', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const module = findModule(id)
+    if (!module) return refuse(reply, 404, `No module named '${id}'.`)
+
+    const body = z
+      .object({ values: z.record(z.string(), z.string().min(1).max(65_536)) })
+      .safeParse(request.body)
+    if (!body.success) return refuse(reply, 400, 'Secret values are required.')
+
+    // Only what the module declares. This route must never become a general
+    // write path into the secret store — the generated secrets in particular
+    // are generated precisely so that no one ever types them.
+    const declared = new Set(module.secrets.map((secret) => secret.name))
+    for (const name of Object.keys(body.data.values)) {
+      if (!declared.has(name)) {
+        return refuse(reply, 422, `'${module.title}' does not take a secret named ${name}.`)
+      }
+    }
+
+    saveSecrets({ ...loadSecrets(ctx.dir), ...body.data.values }, ctx.dir)
+    ctx.audit.record('module-secret-set', {
+      detail: `${id}: ${Object.keys(body.data.values).join(', ')}`,
+      address: request.ip,
+    })
+    return { success: true, data: {} }
   })
 
   app.post('/api/modules/:id/enable', async (request, reply) => {
@@ -207,4 +247,14 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
         : null,
     }
   })
+}
+
+/** JSON Schema for the form, or null for a module that takes no config. */
+function configSchemaOf(module: (typeof CATALOGUE)[number]): unknown {
+  try {
+    return z.toJSONSchema(module.config, { io: 'input' })
+  } catch {
+    // z.void() and friends cannot be represented; that *is* the answer.
+    return null
+  }
 }
