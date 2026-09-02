@@ -25,7 +25,8 @@ claims rather than take them on trust. They are structural, not policy.
   over whole files. Nothing selects rows.
 - **It never runs `docker exec`.** This is the boundary that matters most —
   `exec` into the database container is a complete client-data dump.
-- **It is never published to the internet.** Bound to `127.0.0.1` by default.
+- **It is never published to the internet.** It serves the box's own LAN;
+  nothing routes it further unless the firm does so deliberately.
 
 ## What it does hold
 
@@ -50,7 +51,7 @@ to pull, which is what makes it the first step rather than the second.
 docker run -d --name qanoontech-engine \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v qanoontech_engine:/var/lib/qanoontech-engine \
-  -p 127.0.0.1:8081:8080 \
+  -p 8081:8080 \
   ghcr.io/alikhubrani/qanoontech-engine:latest
 ```
 

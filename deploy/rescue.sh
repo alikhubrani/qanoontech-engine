@@ -48,10 +48,10 @@ case "${1:-}" in
     docker run -d --name "$ENGINE_NAME" \
       --volume /var/run/docker.sock:/var/run/docker.sock \
       --volume "$VOLUME":/var/lib/qanoontech-engine \
-      --publish 127.0.0.1:8081:8080 \
+      --publish 8081:8080 \
       --restart unless-stopped \
       "$ENGINE_IMAGE"
-    echo "Engine restarted on 127.0.0.1:8081."
+    echo "Engine restarted on port 8081."
     ;;
   *)
     echo "Usage: ./rescue.sh up | down | ps | engine" >&2

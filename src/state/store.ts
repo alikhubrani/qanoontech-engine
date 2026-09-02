@@ -19,7 +19,8 @@ export function stateDir(): string {
 }
 
 const settingsSchema = z.object({
-  bindAddress: z.string().min(1).default('127.0.0.1'),
+  /** 0.0.0.0 by design: a deployment serves its LAN unless the firm narrows it. */
+  bindAddress: z.string().min(1).default('0.0.0.0'),
   appPort: z.number().int().min(1).max(65535).default(8080),
   dbName: z.string().min(1).default('qanoontech'),
   dbUser: z.string().min(1).default('qanoontech'),

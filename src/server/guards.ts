@@ -1,3 +1,4 @@
+import { isIP } from 'node:net'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -7,8 +8,11 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * the operator's own browser can rebind a domain it controls to 127.0.0.1 and
  * script requests against anything listening there. What defeats that here:
  *
- *   - the Host header must be an address this engine was told it serves on —
- *     a rebound request arrives under the attacker's hostname;
+ *   - the Host header must be an IP literal or a name this engine was told it
+ *     serves on. Deployments are LAN-open by design, so any IP the box answers
+ *     on is fine — what a DNS-rebinding request can never carry is an IP
+ *     literal, because the whole attack is a *domain* the attacker controls
+ *     resolving here, and the browser puts that domain in Host;
  *   - the session cookie is SameSite=Strict, so a cross-site request carries
  *     no session even if Host were somehow right;
  *   - a state-changing request with an Origin must match a served host — a
@@ -46,7 +50,9 @@ function hostnameOf(value: string | undefined): string | undefined {
 
 export function checkHost(request: FastifyRequest, config: GuardConfig): boolean {
   const hostname = hostnameOf(request.headers.host)
-  return hostname !== undefined && config.allowedHosts.includes(hostname)
+  if (hostname === undefined) return false
+  if (isIP(hostname) > 0) return true
+  return config.allowedHosts.includes(hostname)
 }
 
 export function checkOrigin(request: FastifyRequest, config: GuardConfig): boolean {
@@ -56,7 +62,9 @@ export function checkOrigin(request: FastifyRequest, config: GuardConfig): boole
   // not CSRF vectors; they are clients, and authentication still applies.
   if (origin === undefined) return true
   const hostname = hostnameOf(origin)
-  return hostname !== undefined && config.allowedHosts.includes(hostname)
+  if (hostname === undefined) return false
+  if (isIP(hostname) > 0) return true
+  return config.allowedHosts.includes(hostname)
 }
 
 export function refuse(reply: FastifyReply, status: number, message: string): FastifyReply {

@@ -97,7 +97,7 @@ describe('settings', () => {
     expect(state.settings.appPort).toBe(8080)
   })
 
-  it('refuses a wildcard bind address with the reason', async () => {
+  it('accepts a wildcard bind address — deployments are LAN-open by design', async () => {
     const cookie = await signIn()
     const put = await app.inject({
       method: 'PUT',
@@ -105,8 +105,8 @@ describe('settings', () => {
       headers: { cookie },
       payload: { bindAddress: '0.0.0.0' },
     })
-    expect(put.statusCode).toBe(400)
-    expect(put.json().error).toContain('Cloudflare')
+    expect(put.statusCode).toBe(200)
+    expect(loadState(dir).settings.bindAddress).toBe('0.0.0.0')
   })
 })
 

@@ -62,7 +62,7 @@ export const S = {
   settingsTitle: 'Deployment settings',
   settingsBindAddress: 'Serve on address',
   settingsBindAddressHint:
-    "The box's own LAN address. Never 0.0.0.0 — that would skip Cloudflare for the whole office.",
+    '0.0.0.0 serves the whole LAN (the default). Narrow it to 127.0.0.1 or a specific address when fronting with the Cloudflare tunnel.',
   settingsAppPort: 'Application port',
   settingsTimezone: 'Timezone',
   settingsLanguage: 'Default language',

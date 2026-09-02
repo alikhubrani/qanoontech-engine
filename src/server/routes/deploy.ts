@@ -32,16 +32,6 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     const body = settingsPatchSchema.safeParse(request.body)
     if (!body.success) return refuse(reply, 400, 'Those settings are not valid.')
 
-    // The renderer is the authority on wildcard addresses and will refuse
-    // them at deploy; refusing here as well just says it sooner.
-    if (['0.0.0.0', '::', '*'].includes(body.data.bindAddress ?? '')) {
-      return refuse(
-        reply,
-        400,
-        "0.0.0.0 would expose the system to the whole office network without passing Cloudflare. Use the box's own address, or 127.0.0.1.",
-      )
-    }
-
     const state = loadState(ctx.dir)
     const patch = Object.fromEntries(
       Object.entries(body.data).filter(([, value]) => value !== undefined),

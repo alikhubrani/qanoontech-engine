@@ -74,13 +74,14 @@ describe('render', () => {
     expect(doc.services.nginx.ports).toEqual(['10.77.42.5:8080:80'])
   })
 
-  it('refuses to render a wildcard bind address', () => {
-    // On a firm's LAN, 0.0.0.0 means anyone in the office reaches the system
-    // without passing Cloudflare. This is the check that has to hold.
-    for (const bindAddress of ['0.0.0.0', '::', '*']) {
-      const result = renderWith([], {}, { settings: { ...settings, bindAddress } })
-      expect(result.ok, `expected ${bindAddress} to be refused`).toBe(false)
-    }
+  it('renders a wildcard bind address — deployments are LAN-open by design', () => {
+    // Decided 2026-09-02: reachability is a configuration, not a refusal. A
+    // firm fronting the system with the tunnel narrows the address then.
+    const result = renderWith([], {}, { settings: { ...settings, bindAddress: '0.0.0.0' } })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const doc = parse(result.yaml)
+    expect(doc.services.nginx.ports).toEqual(['0.0.0.0:8080:80'])
   })
 
   it('reports a missing secret instead of throwing', () => {

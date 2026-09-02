@@ -31,7 +31,7 @@ runs on our side, not theirs.
 | holds | images, versions, credentials, container lifecycle | cases, clients, documents |
 | knows about modules | everything: image, cost, config, health | only whether one **answers** |
 | storage | its own volume | Postgres + uploads |
-| reachable | `127.0.0.1:8081`, never published | through nginx and the tunnel |
+| reachable | the box's LAN on `:8081`, never routed further | through nginx, the LAN, and the tunnel |
 
 The application never stores a second copy of deployment state. It derives it.
 See [Modules](#modules) for why that sentence is the most important one in this
@@ -385,13 +385,13 @@ One command, then a browser.
 docker run -d --name qanoontech-engine \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v qanoontech_engine:/var/lib/qanoontech-engine \
-  -p 127.0.0.1:8081:8080 \
+  -p 8081:8080 \
   ghcr.io/alikhubrani/qanoontech-engine:latest
 ```
 
 The engine image is public and needs no credential to pull, which is what makes
 this the first step rather than the second. Everything after it happens at
-`http://127.0.0.1:8081/`:
+`http://<the box's address>:8081/`, from any machine on the firm's network:
 
 ```
 licence  →  registry token  →  preflight  →  version
@@ -462,17 +462,23 @@ shipping.
 The repository is public. That does not weaken the design, but it does mean the
 design has to hold with the attacker having read it.
 
-1. **Never on the public internet.** Bound to `127.0.0.1` by default; reachable
-   through Cloudflare One if the firm chooses, never published.
+1. **Never on the public internet.** Deployments are **LAN-open by design**
+   (decided 2026-09-02, reversing an earlier default of `127.0.0.1`): the
+   application and the panel serve the box's own network out of the box, and
+   nothing routes them further unless the firm does so deliberately. A firm
+   fronting the system with the Cloudflare tunnel narrows the bind address in
+   settings at that point — reachability is a configuration, not a rail.
 
-   And binding is not the boundary. A malicious page in the operator's own
-   browser can rebind a domain to `127.0.0.1` and reach anything listening
-   there — DNS rebinding is routine against localhost panels. So the engine
-   also **validates the `Host` header** against what it was configured to
-   serve on, sets session cookies `HttpOnly` and `SameSite=Strict` (a rebound
-   request arrives under the attacker's domain and carries no cookie), and
-   checks `Origin` on every state-changing request. Every endpoint requires
-   authentication; nothing trusts the network for being local.
+   Binding was never the boundary anyway. A malicious page in a browser can
+   rebind a domain it controls to any address and script requests against
+   whatever listens there. So the engine **validates the `Host` header**: an
+   IP literal is always acceptable — the rebinding attack arrives under the
+   attacker's *domain*, because a domain resolving here is the whole attack —
+   while domain names must be ones the engine was told it serves. Session
+   cookies are `HttpOnly` and `SameSite=Strict` (a rebound request carries no
+   cookie), `Origin` is checked on every state-changing request, and every
+   endpoint requires authentication; nothing trusts the network for being
+   local.
 2. **Real brute-force protection.** Server-side throttle in durable state with
    progressive delay or temporary lockout, reset on success
    ([OWASP](https://owasp.org/www-community/controls/Blocking_Brute_Force_Attacks)).

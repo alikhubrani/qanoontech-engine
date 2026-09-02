@@ -194,6 +194,25 @@ describe('rebinding and cross-origin guards', () => {
     }
   })
 
+  it('accepts any IP-literal host — the LAN reaches a LAN-open box by IP', async () => {
+    // A rebinding request cannot carry an IP literal: the attack is a domain
+    // the attacker controls resolving here, and the browser puts that domain
+    // in Host. Any actual IP is therefore the operator, not the attack.
+    for (const host of ['192.168.1.106:8081', '10.77.42.5', '[::1]:8081']) {
+      const response = await app.inject({ method: 'GET', url: '/api/health', headers: { host } })
+      expect(response.statusCode, host).toBe(200)
+    }
+  })
+
+  it('still refuses a domain it was not told to serve', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: 'attacker.example:8081' },
+    })
+    expect(response.statusCode).toBe(421)
+  })
+
   it('refuses a cross-origin write and allows a same-origin one', async () => {
     const cross = await app.inject({
       method: 'POST',

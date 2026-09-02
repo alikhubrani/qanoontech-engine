@@ -246,7 +246,7 @@ program
     const result = await selfUpdate(image, options.name, [
       '--volume', '/var/run/docker.sock:/var/run/docker.sock',
       '--volume', 'qanoontech_engine:/var/lib/qanoontech-engine',
-      '--publish', '127.0.0.1:8081:8080',
+      '--publish', '8081:8080',
       '--restart', 'unless-stopped',
     ])
     if (result.code !== 0) fail(result.stderr.trim() || 'Could not start the update helper.')

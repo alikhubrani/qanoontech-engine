@@ -4,9 +4,9 @@ import { defineModule } from '../types.js'
 /**
  * The reverse proxy, and the only thing the tunnel talks to.
  *
- * Published on the box's own address rather than 0.0.0.0. On a firm's LAN,
- * 0.0.0.0 means anyone in the office reaches the system without passing
- * Cloudflare — see the renderer, which refuses it outright.
+ * Published on the configured bind address — 0.0.0.0 by default, so the LAN
+ * reaches the system out of the box. A firm fronting it with the Cloudflare
+ * tunnel narrows the address in settings, deliberately.
  */
 export const nginx = defineModule({
   id: 'nginx',
