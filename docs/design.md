@@ -140,6 +140,22 @@ constraint, the internal interface above is what makes switching a swapped
 implementation rather than a rewrite. Do not let compose invocations leak out of
 it.
 
+#### Secrets in the rendered file
+
+The renderer currently writes secrets into the file as environment variables,
+which is how the existing deployment's `.env` works too — and it has the known
+weaknesses: values visible in `docker inspect`, present in the environment of
+every process in the container, and one careless log line from leaking. The
+better mechanism is compose file-based secrets mounted at `/run/secrets/`,
+read through the `_FILE` convention.
+
+The move is phased because it is not free: the official Postgres image
+understands `POSTGRES_PASSWORD_FILE` today, but the application reads plain
+environment variables and has to learn `_FILE` first. Until then the rendered
+file is mode `0600` on the engine's volume, which is no worse than the `.env`
+it replaces — but "no worse than before" is a starting point, not a
+destination. Postgres moves first; the application follows when it can.
+
 ### Docker access
 
 The engine holds the Docker socket. That is root on the host, and it is stated
@@ -282,9 +298,22 @@ entitled module ids, seat limit, licence id. The engine carries the public key
 and verifies it locally. No network call is required to *use* a licence, which
 means our infrastructure being down never prevents a firm from working.
 
+**Format: PASETO `v4.public`, not JWT.** Both sign with Ed25519; the difference
+is that JWT lets the token name its own algorithm, and that choice is the
+source of its two classic forgeries (`alg: none`, HMAC/RSA confusion). PASETO
+removes the choice — the version *is* the algorithm — and its stated fit is
+exactly ours: one issuer, one verifier, both under our control.
+
 The format has to be right on the first release: it is the one thing that cannot
 be changed retroactively across boxes already deployed. Version the payload from
 day one.
+
+**The grace clock must survive a clock change.** Thirty days measured against
+the system clock is thirty days an operator can extend forever by setting the
+clock back. The engine keeps a monotonic high-water mark of the latest time it
+has ever observed; when the system clock is behind that mark, the clock has
+been moved, and grace is counted against the mark rather than the clock. Time
+that has been seen has elapsed, whatever the clock now claims.
 
 Signing keys live in our infrastructure and never in this repository. The public
 key is compiled into the engine image.
@@ -435,6 +464,15 @@ design has to hold with the attacker having read it.
 
 1. **Never on the public internet.** Bound to `127.0.0.1` by default; reachable
    through Cloudflare One if the firm chooses, never published.
+
+   And binding is not the boundary. A malicious page in the operator's own
+   browser can rebind a domain to `127.0.0.1` and reach anything listening
+   there — DNS rebinding is routine against localhost panels. So the engine
+   also **validates the `Host` header** against what it was configured to
+   serve on, sets session cookies `HttpOnly` and `SameSite=Strict` (a rebound
+   request arrives under the attacker's domain and carries no cookie), and
+   checks `Origin` on every state-changing request. Every endpoint requires
+   authentication; nothing trusts the network for being local.
 2. **Real brute-force protection.** Server-side throttle in durable state with
    progressive delay or temporary lockout, reset on success
    ([OWASP](https://owasp.org/www-community/controls/Blocking_Brute_Force_Attacks)).
@@ -448,6 +486,15 @@ design has to hold with the attacker having read it.
 6. **Secrets never in the repository.** Licence signing keys, registry
    credentials and service account keys live on the engine's volume or in our
    infrastructure.
+7. **The engine's own container is hardened.** `no-new-privileges`, a
+   read-only root filesystem with a tmpfs for scratch, no capabilities it does
+   not use. It holds the socket, so a compromise is root regardless — the
+   hardening is not about containing that, it is about denying a foothold: a
+   bug in the panel should not hand an attacker a writable filesystem to
+   persist in.
+8. **Sessions follow OWASP.** Tokens of at least 64 bits of entropy,
+   regenerated on login, invalidated server-side on logout, and a short idle
+   timeout — this is an administrative console, not a mail client.
 
 ---
 
