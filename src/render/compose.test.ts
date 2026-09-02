@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
-import { resolve, type DeploymentSettings } from '../catalogue/index.js'
-import { currentEntitlements } from '../licence/index.js'
+import { CATALOGUE, resolve, type DeploymentSettings } from '../catalogue/index.js'
 import { render } from './compose.js'
+
+const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !== undefined)
 
 const settings: DeploymentSettings = {
   bindAddress: '10.77.42.5',
@@ -29,7 +30,7 @@ function renderWith(
   config: Record<string, unknown> = {},
   overrides: Partial<{ settings: DeploymentSettings; secrets: Record<string, string> }> = {},
 ) {
-  const resolution = resolve({ enabled, config, entitlements: currentEntitlements() })
+  const resolution = resolve({ enabled, config, entitlements: ALL })
   if (!resolution.ok) throw new Error(resolution.problems.map((p) => p.message).join('; '))
   return render({
     modules: resolution.modules,
@@ -151,7 +152,7 @@ describe('render', () => {
   })
 
   it('refuses to render without a version', () => {
-    const resolution = resolve({ enabled: [], config: {}, entitlements: currentEntitlements() })
+    const resolution = resolve({ enabled: [], config: {}, entitlements: ALL })
     if (!resolution.ok) throw new Error('unreachable')
     const result = render({ modules: resolution.modules, version: '  ', settings, secrets })
     expect(result.ok).toBe(false)

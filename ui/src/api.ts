@@ -30,6 +30,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 export const api = {
   get: <T>(url: string) => call<T>('GET', url),
   post: <T>(url: string, body?: unknown) => call<T>('POST', url, body),
+  put: <T>(url: string, body?: unknown) => call<T>('PUT', url, body),
   delete: <T>(url: string) => call<T>('DELETE', url),
 }
 
@@ -64,4 +65,22 @@ export interface Overview {
   services: ServiceView[]
   dockerError?: string
   audit: AuditEntry[]
+}
+
+export interface LicenceInfo {
+  standing: 'ok' | 'grace' | 'enforce' | 'missing' | 'invalid'
+  message: string
+  problem: string | null
+  graceUsedDays: number | null
+  graceDays: number | null
+  enforced: boolean
+  claims: {
+    firmName: string
+    licenceId: string
+    expiresAt: string
+    entitlements: string[]
+    seats: number
+    override: boolean
+  } | null
+  heartbeat: { lastSuccessAt: number | null; lastError: string | null }
 }

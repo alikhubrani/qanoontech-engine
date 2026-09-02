@@ -11,3 +11,5 @@ dist/
 .state/
 ui/dist/
 ui/node_modules/
+keypair.json
+claims.json

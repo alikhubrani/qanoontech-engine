@@ -49,6 +49,25 @@ export const S = {
   logsEmpty: 'No output.',
   close: 'Close',
 
+  // Licence
+  navLicence: 'Licence',
+  licenceTitle: 'Licence',
+  licenceFirm: 'Licensed to',
+  licenceId: 'Licence id',
+  licenceExpires: 'Expires',
+  licenceSeats: 'Seats',
+  licenceSeatsUnlimited: 'Unlimited',
+  licenceEntitlements: 'Modules entitled',
+  licenceHeartbeatOk: 'Last confirmed',
+  licenceInstallTitle: 'Install a licence',
+  licenceInstallExplainer:
+    'Paste the licence exactly as it was issued. Installing a new licence replaces the current one and clears any enforcement.',
+  licenceInstallSubmit: 'Install',
+  licenceInstalled: 'Licence installed.',
+  licenceOverrideBadge: 'override licence',
+  licenceEnforcedBanner:
+    'The deployment has been stopped over its licence. The data is intact and backups continue. Install a valid licence to bring it back.',
+
   // Errors
   errorGeneric: 'Something went wrong. The details are in the engine log.',
   workingEllipsis: 'Working…',
@@ -63,4 +82,7 @@ export const auditEventLabels: Record<string, string> = {
   'service-start': 'Service started',
   'service-stop': 'Service stopped',
   'service-restart': 'Service restarted',
+  'licence-installed': 'Licence installed',
+  'licence-enforced': 'Licence enforcement: deployment stopped',
+  'licence-cleared': 'Licence enforcement lifted: deployment restarted',
 }

@@ -13,7 +13,7 @@ import { listServices } from './services.js'
 export function overviewRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.get('/api/overview', async () => {
     const state = loadState(ctx.dir)
-    const plan = buildPlan(ctx.dir)
+    const plan = await buildPlan(ctx.dir)
     const { services, dockerError } = await listServices()
 
     return {

@@ -26,6 +26,9 @@ export type AuditEvent =
   | 'service-start'
   | 'service-stop'
   | 'service-restart'
+  | 'licence-installed'
+  | 'licence-enforced'
+  | 'licence-cleared'
 
 export interface AuditEntry {
   readonly at: string

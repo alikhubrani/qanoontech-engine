@@ -1,6 +1,6 @@
 # QanoonTech Engine — design
 
-**Status: phase 1 built; phases 2–5 proposed.** This document is the decision
+**Status: phases 1–3 built; phases 4–5 proposed.** This document is the decision
 record and the plan. Where it states a decision, that decision was made
 deliberately and the alternative is written down next to it, so that changing
 course later is an argument with a known cost rather than a rediscovery.
@@ -552,8 +552,8 @@ next begins.
 | phase | what | done when |
 | --- | --- | --- |
 | **1** *(built, not yet run against Docker)* | Catalogue, renderer, container interface, compose generation. CLI only, no UI | a stack can be brought up and down from the catalogue alone |
-| **2** | Web UI: Overview, Services, logs, start/stop/restart. Auth, throttle, audit log | an operator runs the deployment from a browser |
-| **3** | Licence: format, offline verification, heartbeat client, grace state machine, enforcement, offline override | enforcement fires correctly on a test box and clears with a new licence |
+| **2** *(built)* | Web UI: Overview, Services, logs, start/stop/restart. Auth, throttle, audit log | an operator runs the deployment from a browser |
+| **3** *(built — see `docs/licence-protocol.md`; the licence service itself is not)* | Licence: format, offline verification, heartbeat client, grace state machine, enforcement, offline override | enforcement fires correctly on a test box and clears with a new licence |
 | **4** | Bootstrap wizard, preflight, versions and rollback, self-update, `rescue.sh` | a clean box goes from one `docker run` to a running firm in a browser |
 | **5** | Modules: PaddleOCR sidecar, Drive mirror extraction, tunnel. Backups, restore, offsite. Support bundle | modules can be enabled and disabled, and a restore completes without a terminal |
 

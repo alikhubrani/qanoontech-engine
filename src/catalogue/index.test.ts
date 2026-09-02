@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CATALOGUE, REQUIRED_MODULE_IDS, resolve } from './index.js'
-import { currentEntitlements } from '../licence/index.js'
 
-const ALL = currentEntitlements()
+const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !== undefined)
 
 const base = { enabled: [] as string[], config: {} as Record<string, unknown>, entitlements: ALL }
 

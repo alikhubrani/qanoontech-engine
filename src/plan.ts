@@ -21,14 +21,19 @@ export type PlanResult =
   | { readonly ok: true; readonly yaml: string; readonly moduleIds: readonly string[] }
   | { readonly ok: false; readonly problems: readonly string[] }
 
-export function buildPlan(dir = stateDir()): PlanResult {
+export async function buildPlan(dir = stateDir()): Promise<PlanResult> {
   const state = loadState(dir)
   const secrets = loadSecrets(dir)
+
+  const licence = await currentEntitlements(dir)
+  if (!licence.ok) {
+    return { ok: false, problems: [licence.problem] }
+  }
 
   const resolution = resolveCatalogue({
     enabled: state.enabled,
     config: state.config,
-    entitlements: currentEntitlements(),
+    entitlements: licence.entitlements,
   })
 
   if (!resolution.ok) {

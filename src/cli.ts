@@ -36,10 +36,10 @@ const program = new Command()
 program
   .command('status')
   .description('What this deployment is configured to be')
-  .action(() => {
+  .action(async () => {
     const state = loadState()
     const secrets = loadSecrets()
-    const plan = buildPlan()
+    const plan = await buildPlan()
 
     console.log(`state          ${stateDir()}`)
     console.log(`version        ${state.version}`)
@@ -189,6 +189,57 @@ secrets
   })
 
 // ---------------------------------------------------------------------------
+// Licence
+// ---------------------------------------------------------------------------
+
+const licence = program.command('licence').description('The licence this deployment runs under')
+
+licence
+  .command('status')
+  .description('Standing, entitlements, grace and heartbeat')
+  .action(async () => {
+    const { currentLicence, readHeartbeat, isEnforced } = await import('./licence/index.js')
+    const status = await currentLicence()
+    console.log(`standing       ${status.standing}`)
+    console.log(`               ${status.message}`)
+    if (status.claims) {
+      console.log(`firm           ${status.claims.firmName}`)
+      console.log(`licence        ${status.claims.licenceId}`)
+      console.log(`expires        ${status.claims.expiresAt}`)
+      console.log(`entitlements   ${status.claims.entitlements.join(', ') || '(none)'}`)
+      console.log(`seats          ${status.claims.seats === 0 ? 'unlimited' : status.claims.seats}`)
+    }
+    const heartbeat = readHeartbeat()
+    if (heartbeat.lastSuccessAt) {
+      console.log(`heartbeat      last confirmed ${new Date(heartbeat.lastSuccessAt).toISOString()}`)
+    }
+    if (heartbeat.lastError) console.log(`               ${heartbeat.lastError}`)
+    if (isEnforced()) console.log('enforced       yes — the deployment has been stopped')
+  })
+
+licence
+  .command('install')
+  .description('Install a licence, read from stdin')
+  .action(async () => {
+    const { verifyLicence, licencePublicKey, installLicence, currentLicence, isEnforced, enforceClear } =
+      await import('./licence/index.js')
+    const token = readFileSync(0, 'utf8').trim()
+    if (token === '') fail('Nothing on stdin. Pipe the licence in.')
+
+    const verified = await verifyLicence(token, licencePublicKey())
+    if (!verified.ok) fail(verified.message)
+
+    const wasEnforced = isEnforced()
+    installLicence(token)
+    const status = await currentLicence()
+    console.log(`${status.standing}: ${status.message}`)
+    if (wasEnforced && (status.standing === 'ok' || status.standing === 'grace')) {
+      const cleared = await enforceClear()
+      console.log(cleared.ok ? `Restarted: ${cleared.detail}` : `Could not restart: ${cleared.detail}`)
+    }
+  })
+
+// ---------------------------------------------------------------------------
 // Deploying
 // ---------------------------------------------------------------------------
 
@@ -196,8 +247,8 @@ program
   .command('render')
   .description('Render the compose file')
   .option('--stdout', 'print it instead of writing it')
-  .action((options: { stdout?: boolean }) => {
-    const plan = requirePlan()
+  .action(async (options: { stdout?: boolean }) => {
+    const plan = await requirePlan()
     if (options.stdout) {
       process.stdout.write(plan.yaml)
       return
@@ -211,7 +262,7 @@ program
   .description('Render, check, pull and bring the deployment up')
   .option('--skip-pull', 'do not download images first')
   .action(async (options: { skipPull?: boolean }) => {
-    const plan = requirePlan()
+    const plan = await requirePlan()
     const path = writePlan(plan.yaml)
     console.log(`Wrote ${path}`)
 
@@ -289,8 +340,8 @@ program
 
 // ---------------------------------------------------------------------------
 
-function requirePlan(): { yaml: string; moduleIds: readonly string[] } {
-  const plan = buildPlan()
+async function requirePlan(): Promise<{ yaml: string; moduleIds: readonly string[] }> {
+  const plan = await buildPlan()
   if (!plan.ok) {
     console.error('This deployment cannot be rendered:')
     for (const problem of plan.problems) console.error(`  - ${problem}`)

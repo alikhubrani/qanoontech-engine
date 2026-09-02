@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, ApiError, type Overview as OverviewData } from './api'
+import { api, ApiError, type LicenceInfo, type Overview as OverviewData } from './api'
 import { Button } from './components'
 import { Login } from './pages/Login'
+import { Licence } from './pages/Licence'
 import { Overview } from './pages/Overview'
 import { Services } from './pages/Services'
 import { S } from './strings'
 
-type Page = 'overview' | 'services'
+type Page = 'overview' | 'services' | 'licence'
 
 /**
  * The shell: an auth gate, a sidebar, and a poll.
@@ -19,15 +20,22 @@ export function App() {
   const [signedIn, setSignedIn] = useState(false)
   const [page, setPage] = useState<Page>('overview')
   const [data, setData] = useState<OverviewData | null>(null)
+  const [licence, setLicence] = useState<LicenceInfo | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      setData(await api.get<OverviewData>('/api/overview'))
+      const [overview, licenceInfo] = await Promise.all([
+        api.get<OverviewData>('/api/overview'),
+        api.get<LicenceInfo>('/api/licence'),
+      ])
+      setData(overview)
+      setLicence(licenceInfo)
       setSignedIn(true)
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) {
         setSignedIn(false)
         setData(null)
+        setLicence(null)
       }
     }
   }, [])
@@ -70,6 +78,7 @@ export function App() {
         <nav className="flex-1 space-y-1 p-2">
           <NavItem label={S.navOverview} active={page === 'overview'} onClick={() => setPage('overview')} />
           <NavItem label={S.navServices} active={page === 'services'} onClick={() => setPage('services')} />
+          <NavItem label={S.navLicence} active={page === 'licence'} onClick={() => setPage('licence')} />
         </nav>
         <div className="border-t border-slate-100 p-2">
           <Button
@@ -85,13 +94,36 @@ export function App() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto p-6">
-        {data === null ? null : page === 'overview' ? (
-          <Overview data={data} />
-        ) : (
-          <Services services={data.services} onChanged={() => void refresh()} />
-        )}
+      <main className="flex-1 overflow-auto">
+        {licence && licence.standing !== 'ok' && <LicenceBanner licence={licence} />}
+        <div className="p-6">
+          {data === null ? null : page === 'overview' ? (
+            <Overview data={data} />
+          ) : page === 'services' ? (
+            <Services services={data.services} onChanged={() => void refresh()} />
+          ) : licence ? (
+            <Licence licence={licence} onChanged={() => void refresh()} />
+          ) : null}
+        </div>
       </main>
+    </div>
+  )
+}
+
+/**
+ * The escalation the design promises: quiet amber while grace runs, red when
+ * the deployment has been stopped. It sits above every page — an operator on
+ * the Services tab does not get to not know.
+ */
+function LicenceBanner({ licence }: { licence: LicenceInfo }) {
+  const stopped = licence.standing === 'enforce' || licence.enforced
+  return (
+    <div
+      className={`px-6 py-2.5 text-sm font-medium ${
+        stopped ? 'bg-red-600 text-white' : 'bg-amber-100 text-amber-900'
+      }`}
+    >
+      {stopped ? S.licenceEnforcedBanner : licence.message}
     </div>
   )
 }
