@@ -238,17 +238,9 @@ program
   .option('--name <name>', 'the engine container name', 'qanoontech-engine')
   .option('--image <image>', 'full image reference, overriding the published one')
   .action(async (version: string, options: { name: string; image?: string }) => {
-    const { selfUpdate } = await import('./docker/index.js')
+    const { selfUpdate, ENGINE_RUN_ARGS } = await import('./docker/index.js')
     const image = options.image ?? `ghcr.io/alikhubrani/qanoontech-engine:${version}`
-    // The recorded run configuration: the mounts and port the README installs
-    // with. A container cannot inspect its own flags, so the contract is that
-    // installations use these — rescue.sh restores a panel that diverged.
-    const result = await selfUpdate(image, options.name, [
-      '--volume', '/var/run/docker.sock:/var/run/docker.sock',
-      '--volume', 'qanoontech_engine:/var/lib/qanoontech-engine',
-      '--publish', '8081:8080',
-      '--restart', 'unless-stopped',
-    ])
+    const result = await selfUpdate(image, options.name, ENGINE_RUN_ARGS)
     if (result.code !== 0) fail(result.stderr.trim() || 'Could not start the update helper.')
     console.log('Update helper started. This container will be replaced in a moment.')
   })

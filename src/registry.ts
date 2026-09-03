@@ -13,6 +13,7 @@ import { loadSecrets, stateDir } from './state/store.js'
 
 export const REGISTRY = 'ghcr.io'
 export const IMAGE_REPOSITORY = 'alikhubrani/qanoontech'
+export const ENGINE_REPOSITORY = 'alikhubrani/qanoontech-engine'
 
 export interface RegistryAuth {
   readonly username: string
@@ -130,13 +131,14 @@ export async function probeRegistry(
  */
 export async function listVersions(
   auth: RegistryAuth,
+  repository: string = IMAGE_REPOSITORY,
   fetcher: typeof fetch = fetch,
 ): Promise<{ ok: true; versions: string[] } | { ok: false; detail: string }> {
-  const { token, probe } = await bearerToken(auth, IMAGE_REPOSITORY, fetcher)
+  const { token, probe } = await bearerToken(auth, repository, fetcher)
   if (!token) return { ok: false, detail: probe.detail }
 
   const tags: string[] = []
-  let url: string | undefined = `https://${REGISTRY}/v2/${IMAGE_REPOSITORY}/tags/list?n=100`
+  let url: string | undefined = `https://${REGISTRY}/v2/${repository}/tags/list?n=100`
   try {
     while (url !== undefined) {
       const response: Response = await fetcher(url, {

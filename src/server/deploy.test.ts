@@ -14,6 +14,7 @@ vi.mock('../docker/index.js', async (importOriginal) => {
     apply: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
     login: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
     ps: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
+    selfUpdate: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
   }
 })
 
@@ -327,5 +328,33 @@ describe('modules describe themselves to the panel', () => {
     }
     const { loadSecrets } = await import('../state/store.js')
     expect(loadSecrets(dir)['DB_PASSWORD']).not.toBe('overwrite-attempt')
+  })
+})
+
+describe('the engine updating itself', () => {
+  it('starts the helper with the standard run configuration', async () => {
+    const cookie = await signIn()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/engine/update',
+      headers: { cookie },
+      payload: { version: '0.2.0' },
+    })
+    expect(response.statusCode).toBe(200)
+    const [image, name, args] = vi.mocked(docker.selfUpdate).mock.calls[0]!
+    expect(image).toBe('ghcr.io/alikhubrani/qanoontech-engine:0.2.0')
+    expect(name).toBe('qanoontech-engine')
+    expect(args).toContain('--restart')
+  })
+
+  it('refuses a version that is not a tag shape', async () => {
+    const cookie = await signIn()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/engine/update',
+      headers: { cookie },
+      payload: { version: 'v1; rm -rf /' },
+    })
+    expect(response.statusCode).toBe(400)
   })
 })

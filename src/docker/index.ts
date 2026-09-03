@@ -235,6 +235,19 @@ export async function login(registry: string, username: string, token: string): 
  * UNTESTED AGAINST A REAL DAEMON — exercised only as constructed arguments
  * until there is a box. Treat with suspicion until then.
  */
+/**
+ * The run configuration every installation uses — the README's command,
+ * rescue.sh, and self-update must agree on it, because a container cannot
+ * inspect its own flags; this constant is that agreement.
+ */
+export const ENGINE_CONTAINER_NAME = 'qanoontech-engine'
+export const ENGINE_RUN_ARGS: readonly string[] = [
+  '--volume', '/var/run/docker.sock:/var/run/docker.sock',
+  '--volume', 'qanoontech_engine:/var/lib/qanoontech-engine',
+  '--publish', '8081:8080',
+  '--restart', 'unless-stopped',
+]
+
 export function selfUpdateArgs(newImage: string, containerName: string, runArgs: readonly string[]): string[] {
   const script = [
     // Pull, or accept an image already on the box — a development build, or a

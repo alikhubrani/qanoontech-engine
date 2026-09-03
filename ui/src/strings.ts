@@ -185,6 +185,21 @@ export const S = {
   passwordSubmit: 'Change password',
   passwordChanged: 'Password changed. Sign in again.',
 
+  // Engine update
+  engineTitle: 'Engine',
+  engineExplainer:
+    'The panel itself. Updating it restarts this page for a few seconds; the firm’s system is not touched.',
+  engineRunning: 'Running version',
+  engineChoose: 'Update to',
+  engineUpdate: 'Update engine',
+  engineUpdateDialogTitle: 'Update the engine?',
+  engineUpdateDialogBody: (from: string, to: string) =>
+    `The panel will restart on version ${to} (from ${from}). The application keeps running untouched, and you will still be signed in. Stay on this page — it will report when the new engine answers.`,
+  engineUpdating: 'Updating… the panel is restarting.',
+  engineUpdated: (version: string) => `The engine is now on ${version}.`,
+  engineUpdateStuck: (version: string) =>
+    `Still on ${version} — the update may have failed to pull. The old engine is untouched; check the box's Docker logs.`,
+
   // Toasts
   toastBackupTaken: 'Backup taken and verified.',
   toastDeployDone: 'Deployed.',

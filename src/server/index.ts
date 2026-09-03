@@ -14,6 +14,7 @@ import { JobRunner } from './jobs.js'
 import { startLicenceLoop } from './licence-tick.js'
 import { backupRoutes } from './routes/backups.js'
 import { deployRoutes } from './routes/deploy.js'
+import { engineRoutes } from './routes/engine.js'
 import { licenceRoutes } from './routes/licence.js'
 import { overviewRoutes } from './routes/overview.js'
 import { SESSION_COOKIE, sessionRoutes } from './routes/session.js'
@@ -89,6 +90,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   licenceRoutes(app, ctx)
   deployRoutes(app, ctx, new JobRunner(dir))
   backupRoutes(app, ctx)
+  engineRoutes(app, ctx)
   supportRoutes(app, ctx)
   if (options.licenceLoop ?? true) {
     startLicenceLoop(app, ctx)
