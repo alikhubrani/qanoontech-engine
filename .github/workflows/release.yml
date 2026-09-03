@@ -1,0 +1,79 @@
+# The engine's own release: a v* tag publishes the image the README's one
+# command installs. The engine versions on its own stream, independent of the
+# application — a firm updates the application weekly and the engine rarely.
+#
+# The image must be PUBLIC on GHCR: the bootstrap pulls it before any
+# credential exists on the box. The first publish creates the package private
+# by default; flipping it to public is a one-time step in the package settings.
+name: Publish engine image
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'src/**'
+      - 'ui/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/release.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository_owner }}/qanoontech-engine
+
+concurrency:
+  group: publish-engine-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=QanoonTech Engine
+            org.opencontainers.image.description=Control plane for a QanoonTech deployment
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
