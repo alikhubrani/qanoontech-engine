@@ -2,7 +2,7 @@ import { listBackups, takeBackup } from '../backup/service.js'
 import * as docker from '../docker/index.js'
 import { pullImages, type ImageProgress } from '../docker/pull.js'
 import { buildPlan, writePlan } from '../plan.js'
-import { storedRegistryAuth } from '../registry.js'
+import { REGISTRY, storedRegistryAuth } from '../registry.js'
 import {
   ensureGeneratedSecrets,
   loadSecrets,
@@ -109,6 +109,13 @@ export class JobRunner {
       const images = imagesResult.stdout.split('\n').map((l) => l.trim()).filter(Boolean)
 
       const auth = storedRegistryAuth(this.dir)
+      // Log the daemon in as well as authenticating the resilient pull: the
+      // pull streams its own credential over the API, but the apply step runs
+      // `docker compose up`, and compose's registry checks use the daemon's
+      // stored login — without this, apply fails `unauthorized` even though
+      // every image is already present. (Found on the staging box; .18 only
+      // worked because a manual login was left behind while debugging.)
+      if (auth) await docker.login(REGISTRY, auth.username, auth.token)
       // Pull one image at a time, resuming through stalls. On a firm's weak
       // connection a large layer freezes without erroring; the resilient
       // puller watches bytes, not the log, and retries from the partial blob.
