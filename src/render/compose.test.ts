@@ -50,8 +50,24 @@ describe('render', () => {
   it('produces a compose file docker can parse', () => {
     const doc = document()
     expect(doc.name).toBe('qanoontech')
-    expect(Object.keys(doc.services)).toEqual(['postgres', 'app', 'nginx'])
+    expect(Object.keys(doc.services)).toEqual(['postgres', 'app', 'nginx', 'gotenberg'])
   })
+
+  it('deploys gotenberg as a required service with no published port', () => {
+    const doc = document()
+    const g = doc.services.gotenberg
+    expect(g.image).toBe('gotenberg/gotenberg:8')
+    // Internal only — the app reaches it by name; nothing is exposed.
+    expect(g.ports).toBeUndefined()
+    expect(g.networks).toEqual(['internal'])
+    expect(g.healthcheck.test).toContain('http://localhost:3000/health')
+  })
+
+  it('tells the application where to render PDFs', () => {
+    const doc = document()
+    expect(doc.services.app.environment.GOTENBERG_URL).toBe('http://gotenberg:3000')
+  })
+
 
   it('tags our images with the deployment version and leaves pinned ones alone', () => {
     const doc = document(['tunnel'], { tunnel: { privateRange: '10.77.42.0/24' } })

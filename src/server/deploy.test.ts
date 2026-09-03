@@ -201,7 +201,7 @@ describe('the deploy job', () => {
     expect(job.ok).toBe(true)
     expect(vi.mocked(pullImages)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(docker.apply)).toHaveBeenCalledTimes(1)
-    expect(job.log).toContain('3 services')
+    expect(job.log).toContain('4 services')
   })
 
   it('refuses a second deploy while one runs', async () => {

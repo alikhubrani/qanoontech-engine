@@ -48,6 +48,9 @@ export const app = defineModule({
         LOG_FILE: '/app/logs/app.log',
         DEFAULT_LANGUAGE: settings.defaultLanguage,
         TZ: settings.timezone,
+        // Where the application renders documents to PDF. It uses this because
+        // the container answers, not because a flag says so.
+        GOTENBERG_URL: 'http://gotenberg:3000',
       },
       volumes: [
         { volume: 'uploads_data', path: '/app/uploads' },
