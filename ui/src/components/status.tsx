@@ -9,10 +9,12 @@ export function StatusBadge({
   tone,
   children,
   className,
+  title,
 }: {
   tone: 'ok' | 'warn' | 'bad' | 'muted'
   children: ReactNode
   className?: string
+  title?: string
 }) {
   const styles = {
     ok: 'border-emerald-200 bg-emerald-50 text-ok',
@@ -21,7 +23,7 @@ export function StatusBadge({
     muted: 'border-border bg-muted text-muted-foreground',
   }[tone]
   return (
-    <Badge variant="outline" className={cn(styles, className)}>
+    <Badge variant="outline" className={cn(styles, className)} title={title}>
       {children}
     </Badge>
   )

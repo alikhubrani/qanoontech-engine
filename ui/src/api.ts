@@ -116,6 +116,21 @@ export interface BackupSet {
   includesUploads: boolean
   databaseBytes: number
   uploadsBytes: number
+  offsite: { uploadedAt: string; attempts: number; lastError: string }
+}
+
+export interface OffsiteConfig {
+  enabled: boolean
+  driveId: string
+  ready: boolean
+  reason: string | null
+}
+
+export interface RemoteSet {
+  name: string
+  files: number
+  bytes: number
+  local: boolean
 }
 
 export interface RestoreResult {

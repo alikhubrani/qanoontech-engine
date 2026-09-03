@@ -14,6 +14,8 @@ const settingsPatchSchema = z.object({
   appPort: z.number().int().min(1).max(65535).optional(),
   timezone: z.string().min(1).optional(),
   defaultLanguage: z.enum(['ar', 'en']).optional(),
+  backupOffsiteEnabled: z.boolean().optional(),
+  backupOffsiteDriveId: z.string().optional(),
 })
 
 /**

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { pendingOffsite, uploadSet } from '../backup/offsite.js'
 import { newestBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { loadState } from '../state/store.js'
@@ -25,12 +26,22 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
     backupHour: state.settings.backupHour,
     timezone: state.settings.timezone,
   })
-  if (!due) return
 
   running = true
   try {
-    const outcome = await takeBackup('scheduled', ctx.dir)
-    ctx.audit.record(outcome.ok ? 'backup-taken' : 'backup-failed', { detail: outcome.detail })
+    if (due) {
+      const outcome = await takeBackup('scheduled', ctx.dir)
+      ctx.audit.record(outcome.ok ? 'backup-taken' : 'backup-failed', { detail: outcome.detail })
+    }
+
+    // The offsite copy of the newest set, until it lands. Retried here rather
+    // than fired-and-forgotten at take time, so a Drive outage during the
+    // night is healed by the next quarter-hour rather than the next backup.
+    const pending = pendingOffsite(ctx.dir)
+    if (pending) {
+      const sent = await uploadSet(pending, ctx.dir)
+      ctx.audit.record(sent.ok ? 'offsite-uploaded' : 'offsite-failed', { detail: sent.detail })
+    }
   } finally {
     running = false
   }

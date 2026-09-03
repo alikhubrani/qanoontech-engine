@@ -44,6 +44,9 @@ export type AuditEvent =
   | 'restore-started'
   | 'restore-completed'
   | 'restore-failed'
+  | 'offsite-uploaded'
+  | 'offsite-failed'
+  | 'offsite-fetched'
 
 export interface AuditEntry {
   readonly at: string

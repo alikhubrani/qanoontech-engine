@@ -37,6 +37,13 @@ const settingsSchema = z.object({
   backupRetentionDays: z.number().int().min(1).max(3650).default(30),
   /** Where documents are already copied offsite, the local set can be the database alone. */
   backupIncludeUploads: z.boolean().default(true),
+  /**
+   * The second copy, in the firm's own Google Shared Drive. Off until a firm
+   * turns it on; the service-account key is the same one the Drive-mirror
+   * module holds, typed once, under that module's configuration.
+   */
+  backupOffsiteEnabled: z.boolean().default(false),
+  backupOffsiteDriveId: z.string().default(''),
 })
 
 const stateSchema = z.object({
