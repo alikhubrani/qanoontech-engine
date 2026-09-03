@@ -102,15 +102,14 @@ export async function signLicence(claims: LicenceClaims, privateKey: KeyObject):
 /**
  * The production public key, compiled into the image.
  *
- * DEVELOPMENT KEY — its private half exists only on the maintainer's machine,
- * for signing test licences against real boxes. It must be replaced with the
- * real issuing key, from our infrastructure, before the first licensed
- * release; the release checklist carries that step. A licence signed with the
- * real key does not verify against this build, and vice versa — which is the
- * point.
+ * THE PRODUCTION ISSUING KEY, from the licence service (qanoontech-licence),
+ * embedded 2026-09-03. Its private half lives with that service and nowhere
+ * else. Changing this line changes which licences this engine trusts —
+ * every deployed box re-judges its licence on its next engine update, so a
+ * key rotation is a coordinated event, never a casual edit.
  */
 const PRODUCTION_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAoUYE9cdeOPwlIx9vXldg02C9phZo+oXbu686D1aJHcA=
+MCowBQYDK2VwAyEAFDdBF6I8qpIU2yvaTafSCX7+7/tqPJ8U8cnGhG0HjEU=
 -----END PUBLIC KEY-----`
 
 export function productionPublicKey(): KeyObject {
