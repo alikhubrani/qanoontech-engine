@@ -195,6 +195,11 @@ export async function publishedPorts(): Promise<CommandResult> {
   return run('docker', ['ps', '--format', '{{.Names}}\t{{.Ports}}'])
 }
 
+/** The exact images the rendered file will run, authoritative for pulling. */
+export async function plannedImages(options?: DockerOptions): Promise<CommandResult> {
+  return compose(['config', '--images'], options)
+}
+
 /** Compose v2 present? Its absence is a preflight failure with its own name. */
 export async function composeVersion(): Promise<CommandResult> {
   return run('docker', ['compose', 'version', '--short'])

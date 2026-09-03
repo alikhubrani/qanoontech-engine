@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
-import { api, ApiError, type DeployStatus, type PreflightCheck } from '../api'
+import { api, ApiError, type DeployStatus, type ImageProgress, type PreflightCheck } from '../api'
 import { S } from '../strings'
 import { ErrorNote, StatusBadge } from '@/components/status'
 import {
@@ -80,7 +80,7 @@ export function Deploy({
         onChanged={onChanged}
       />
       <PreflightSection />
-      <DeploySection onChanged={onChanged} onRunning={setDeploying} />
+      <DeploySection version={version} onChanged={onChanged} onRunning={setDeploying} />
     </div>
   )
 }
@@ -547,9 +547,11 @@ function PreflightSection() {
 }
 
 function DeploySection({
+  version,
   onChanged,
   onRunning,
 }: {
+  version: string
   onChanged: () => void
   onRunning: (running: boolean) => void
 }) {
@@ -609,6 +611,11 @@ function DeploySection({
           <Button disabled={status?.running ?? false} onClick={start}>
             {status?.running ? S.deployRunning : S.deployStart}
           </Button>
+          {status?.running && status.targetVersion && version && (
+            <span className="text-sm text-muted-foreground">
+              {S.deployRunningVersion(version, status.targetVersion)}
+            </span>
+          )}
           {status && !status.running && status.ok === true && (
             <span className="text-sm text-ok">{S.deployDone}</span>
           )}
@@ -616,12 +623,77 @@ function DeploySection({
             <span className="text-sm text-bad">{S.deployFailed}</span>
           )}
         </div>
+
+        {status?.step === 'pull' && status.images && status.images.length > 0 && (
+          <div className="space-y-2">
+            {status.images.map((img) => (
+              <ImageRow key={img.image} img={img} />
+            ))}
+          </div>
+        )}
+
         {status?.log && (
-          <ScrollArea ref={logRef} className="h-80 rounded-lg bg-brand-dark p-4">
+          <ScrollArea ref={logRef} className="h-64 rounded-lg bg-brand-dark p-4">
             <pre className="font-mono text-xs leading-relaxed text-slate-100">{status.log}</pre>
           </ScrollArea>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+
+function formatMB(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  return `${Math.round(bytes / 1024 ** 2)} MB`
+}
+
+function ImageRow({ img }: { img: ImageProgress }) {
+  const label = img.image.split('/').pop() ?? img.image
+  const stateText =
+    img.state === 'done'
+      ? S.imgDone
+      : img.state === 'failed'
+        ? S.imgFailed
+        : img.state === 'stalled'
+          ? S.imgStalled
+          : img.state === 'extracting'
+            ? S.imgExtracting
+            : img.state === 'downloading'
+              ? S.imgDownloading
+              : S.imgWaiting
+  const tone =
+    img.state === 'done'
+      ? 'bg-ok'
+      : img.state === 'stalled' || img.state === 'failed'
+        ? 'bg-bad'
+        : 'bg-brand'
+  const pct = img.percent >= 0 ? img.percent : img.state === 'done' ? 100 : 0
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-mono text-slate-700">{label}</span>
+        <span
+          className={
+            img.state === 'stalled' || img.state === 'failed'
+              ? 'text-bad'
+              : img.state === 'done'
+                ? 'text-ok'
+                : 'text-muted-foreground'
+          }
+        >
+          {img.total > 0 && img.state !== 'done'
+            ? `${formatMB(img.downloaded)} / ${formatMB(img.total)} · ${stateText}`
+            : stateText}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+        <div
+          className={`h-full ${tone} transition-all`}
+          style={{ width: `${img.state === 'stalled' ? 100 : pct}%` }}
+        />
+      </div>
+    </div>
   )
 }

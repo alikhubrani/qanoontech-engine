@@ -245,6 +245,8 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
             ok: job.ok ?? null,
             log: job.log,
             startedAt: job.startedAt,
+            targetVersion: job.targetVersion,
+            images: job.images,
           }
         : null,
     }

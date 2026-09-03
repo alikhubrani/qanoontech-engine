@@ -1,7 +1,8 @@
 import { listBackups, takeBackup } from '../backup/service.js'
 import * as docker from '../docker/index.js'
+import { pullImages, type ImageProgress } from '../docker/pull.js'
 import { buildPlan, writePlan } from '../plan.js'
-import { REGISTRY, storedRegistryAuth } from '../registry.js'
+import { storedRegistryAuth } from '../registry.js'
 import {
   ensureGeneratedSecrets,
   loadSecrets,
@@ -28,6 +29,10 @@ export interface DeployJob {
   log: string
   /** What the deploy is doing now, for a one-line status. */
   step: 'render' | 'validate' | 'pull' | 'backup' | 'apply' | 'done'
+  /** The version being deployed, so the UI can say "running X, deploying Y". */
+  targetVersion: string
+  /** Per-image download state during the pull step. */
+  images: ImageProgress[]
 }
 
 export class JobRunner {
@@ -46,7 +51,13 @@ export class JobRunner {
   /** Start a deploy. Returns false if one is already running. */
   startDeploy(): boolean {
     if (this.isRunning()) return false
-    const job: DeployJob = { startedAt: Date.now(), log: '', step: 'render' }
+    const job: DeployJob = {
+      startedAt: Date.now(),
+      log: '',
+      step: 'render',
+      targetVersion: loadState(this.dir).version,
+      images: [],
+    }
     this.job = job
     void this.run(job)
     return true
@@ -93,14 +104,35 @@ export class JobRunner {
       // changed nothing, which is what makes an update safe to attempt.
       job.step = 'pull'
       this.append(job, '\n── Downloading images ──\n')
-      // The daemon's login is per-container-filesystem and this container is
-      // recreated on every engine update; the stored credential is the truth,
-      // so it is re-asserted before every pull rather than assumed to persist.
+
+      const imagesResult = await docker.plannedImages({ composeFile: path })
+      const images = imagesResult.stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+
       const auth = storedRegistryAuth(this.dir)
-      if (auth) await docker.login(REGISTRY, auth.username, auth.token)
-      const pulled = await docker.pull({ composeFile: path, onOutput })
-      if (pulled.code !== 0) {
-        this.append(job, '\nDownload failed. Nothing running has been touched.\n')
+      // Pull one image at a time, resuming through stalls. On a firm's weak
+      // connection a large layer freezes without erroring; the resilient
+      // puller watches bytes, not the log, and retries from the partial blob.
+      job.images = images.map((image) => ({
+        image,
+        state: 'waiting' as const,
+        downloaded: 0,
+        total: 0,
+        percent: -1,
+        attempt: 0,
+        detail: '',
+      }))
+      const pulled = await pullImages(images, {
+        ...(auth ? { auth } : {}),
+        onProgress: (p) => {
+          const i = job.images.findIndex((x) => x.image === p.image)
+          if (i >= 0) job.images[i] = p
+          if (p.state === 'stalled') this.append(job, `${p.image}: stalled, retrying…\n`)
+          if (p.state === 'done') this.append(job, `${p.image}: done\n`)
+        },
+      })
+      if (!pulled.ok) {
+        const failed = pulled.images.find((i) => i.state === 'failed')
+        this.append(job, `\nDownload failed${failed ? ` on ${failed.image}` : ''}. Nothing running has been touched.\n`)
         this.finish(job, false)
         return
       }

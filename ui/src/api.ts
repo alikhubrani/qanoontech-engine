@@ -92,12 +92,24 @@ export interface PreflightCheck {
   detail: string
 }
 
+export interface ImageProgress {
+  image: string
+  state: 'waiting' | 'downloading' | 'extracting' | 'stalled' | 'done' | 'failed'
+  downloaded: number
+  total: number
+  percent: number
+  attempt: number
+  detail: string
+}
+
 export interface DeployStatus {
   running: boolean
   step: string
   ok: boolean | null
   log: string
   startedAt: number
+  targetVersion?: string
+  images?: ImageProgress[]
 }
 
 export interface ModuleInfo {

@@ -104,6 +104,13 @@ export const S = {
     'Renders the deployment, checks it, downloads images, then applies. A failed download touches nothing that is running.',
   deployStart: 'Deploy now',
   deployRunning: 'Deploying…',
+  deployRunningVersion: (from: string, to: string) => `Running ${from} · deploying ${to}`,
+  imgWaiting: 'waiting',
+  imgDownloading: 'downloading',
+  imgExtracting: 'unpacking',
+  imgStalled: 'stalled — retrying',
+  imgDone: 'done',
+  imgFailed: 'failed',
   deployDone: 'Deployed.',
   deployFailed: 'Deploy failed — the log has the reason.',
 

@@ -10,6 +10,11 @@ vi.mock('../docker/index.js', async (importOriginal) => {
   return {
     ...original,
     validate: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
+    plannedImages: vi.fn(async () => ({
+      code: 0,
+      stdout: 'ghcr.io/alikhubrani/qanoontech:1.0.2\nghcr.io/alikhubrani/qanoontech-nginx:1.0.2\npostgres:15-alpine\n',
+      stderr: '',
+    })),
     pull: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
     apply: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
     login: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })),
@@ -18,7 +23,15 @@ vi.mock('../docker/index.js', async (importOriginal) => {
   }
 })
 
+vi.mock('../docker/pull.js', () => ({
+  pullImages: vi.fn(async (images: string[]) => ({
+    ok: true,
+    images: images.map((image) => ({ image, state: 'done', downloaded: 1, total: 1, percent: 100, attempt: 1, detail: '' })),
+  })),
+}))
+
 import * as docker from '../docker/index.js'
+import { pullImages } from '../docker/pull.js'
 import {
   LICENCE_VERSION,
   licenceClaimsSchema,
@@ -186,7 +199,7 @@ describe('the deploy job', () => {
 
     const job = jobs.current()!
     expect(job.ok).toBe(true)
-    expect(vi.mocked(docker.pull)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(pullImages)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(docker.apply)).toHaveBeenCalledTimes(1)
     expect(job.log).toContain('3 services')
   })
@@ -195,10 +208,10 @@ describe('the deploy job', () => {
     await licensed()
     setVersion('1.0.2', dir)
     let release!: () => void
-    vi.mocked(docker.pull).mockImplementationOnce(
+    vi.mocked(pullImages).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          release = () => resolve({ code: 0, stdout: '', stderr: '' })
+          release = () => resolve({ ok: true, images: [] })
         }),
     )
     const jobs = new JobRunner(dir)
@@ -212,7 +225,10 @@ describe('the deploy job', () => {
   it('a failed pull touches nothing running', async () => {
     await licensed()
     setVersion('1.0.2', dir)
-    vi.mocked(docker.pull).mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'denied' })
+    vi.mocked(pullImages).mockResolvedValueOnce({
+      ok: false,
+      images: [{ image: 'x', state: 'failed', downloaded: 0, total: 0, percent: -1, attempt: 6, detail: 'stalled' }],
+    })
     const jobs = new JobRunner(dir)
     jobs.startDeploy()
     await vi.waitFor(() => expect(jobs.isRunning()).toBe(false))
