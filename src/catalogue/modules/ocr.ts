@@ -42,7 +42,7 @@ export const ocr = defineModule({
   defaultEnabled: false,
   entitlement: 'module.ocr',
   image: { kind: 'versioned', repository: 'ghcr.io/alikhubrani/qanoontech-ocr' },
-  cost: { image: '~2.7 GB', memory: '2G', cpus: '2' },
+  cost: { image: '~2.7 GB', memory: '4G', cpus: '2' },
   requires: ['app'],
   config,
   secrets: [],

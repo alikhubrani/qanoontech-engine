@@ -145,6 +145,14 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
             // Whether one is stored. The value itself has no read path.
             set: Boolean(secrets[secret.name]),
           })),
+          resources: {
+            // The effective limits and the catalogue defaults, so the panel can
+            // show "default 4G" beside an override field.
+            memory: state.resources[module.id]?.memory ?? module.cost.memory,
+            cpus: state.resources[module.id]?.cpus ?? module.cost.cpus,
+            defaultMemory: module.cost.memory,
+            defaultCpus: module.cost.cpus,
+          },
         })),
       },
     }
@@ -201,6 +209,36 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     const state = loadState(ctx.dir)
     saveState({ ...state, enabled: state.enabled.filter((m) => m !== id) }, ctx.dir)
     ctx.audit.record('module-disabled', { detail: id, address: request.ip })
+    return { success: true, data: {} }
+  })
+
+  app.put('/api/modules/:id/resources', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const module = findModule(id)
+    if (!module) return refuse(reply, 404, `No module named '${id}'.`)
+
+    // Compose accepts memory as a number of bytes or a unit suffix (b/k/m/g),
+    // and cpus as a decimal count. Validate the shape so a typo is refused here
+    // rather than producing a compose file Docker rejects at deploy.
+    const body = z
+      .object({
+        memory: z.string().regex(/^\d+(\.\d+)?[bkmgBKMG]?$/).optional(),
+        cpus: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+      })
+      .safeParse(request.body)
+    if (!body.success) {
+      return refuse(reply, 400, 'Memory must look like 4G or 512M; CPUs like 2 or 1.5.')
+    }
+
+    const state = loadState(ctx.dir)
+    const next = { ...state.resources }
+    const entry: { memory?: string; cpus?: string } = {}
+    if (body.data.memory) entry.memory = body.data.memory
+    if (body.data.cpus) entry.cpus = body.data.cpus
+    if (Object.keys(entry).length === 0) delete next[id]
+    else next[id] = entry
+    saveState({ ...state, resources: next }, ctx.dir)
+    ctx.audit.record('module-configured', { detail: `${id} resources`, address: request.ip })
     return { success: true, data: {} }
   })
 

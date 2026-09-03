@@ -85,6 +85,11 @@ export const S = {
   moduleConfigure: 'Configure',
   moduleConfigSave: 'Save configuration',
   moduleConfigSaved: 'Saved.',
+  moduleResources: 'Resources',
+  moduleMemory: 'Memory limit',
+  moduleCpus: 'CPU limit',
+  moduleResourceHint: (mem: string, cpus: string) =>
+    `Default ${mem} memory, ${cpus} CPU. Raise these on a larger box — e.g. give OCR more memory where the machine has it.`,
   secretSet: 'set',
   secretReplacePlaceholder: 'Already set — enter a value to replace it',
   secretChooseFile: 'Choose file…',

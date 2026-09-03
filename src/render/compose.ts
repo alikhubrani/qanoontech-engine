@@ -16,6 +16,8 @@ export interface RenderInput {
   readonly settings: DeploymentSettings
   /** Secret values by name, from the engine's own store. */
   readonly secrets: Readonly<Record<string, string>>
+  /** Per-module resource overrides; falls back to each module's catalogue cost. */
+  readonly resources?: Readonly<Record<string, { memory?: string | undefined; cpus?: string | undefined }>>
 }
 
 export interface RenderProblem {
@@ -103,7 +105,7 @@ export function render(input: RenderInput): RenderResult {
   if (problems.length > 0) return { ok: false, problems }
 
   for (const { module, rendered } of renderedByModule.values()) {
-    services[module.id] = composeService(module, rendered, renderedByModule)
+    services[module.id] = composeService(module, rendered, renderedByModule, input.resources?.[module.id])
   }
 
   const document: Record<string, unknown> = {
@@ -139,6 +141,7 @@ function composeService(
   module: AnyModule,
   rendered: RenderedService,
   all: ReadonlyMap<string, { module: AnyModule; rendered: RenderedService }>,
+  resourceOverride?: { memory?: string | undefined; cpus?: string | undefined },
 ): Record<string, unknown> {
   const service: Record<string, unknown> = {
     image: rendered.image,
@@ -176,7 +179,12 @@ function composeService(
   if (rendered.healthcheck) service['healthcheck'] = healthcheck(rendered.healthcheck)
 
   service['deploy'] = {
-    resources: { limits: { cpus: module.cost.cpus, memory: module.cost.memory } },
+    resources: {
+      limits: {
+        cpus: resourceOverride?.cpus || module.cost.cpus,
+        memory: resourceOverride?.memory || module.cost.memory,
+      },
+    },
   }
 
   return service

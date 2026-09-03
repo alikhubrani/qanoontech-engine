@@ -39,6 +39,7 @@ interface ModuleRow {
   config: unknown
   configSchema: ObjectSchema | null
   secrets: SecretDeclaration[]
+  resources: { memory: string; cpus: string; defaultMemory: string; defaultCpus: string }
 }
 
 interface Settings {
@@ -269,6 +270,8 @@ function ModulesSection({
   const [open, setOpen] = useState<string | null>(null)
   const [configDraft, setConfigDraft] = useState<Record<string, unknown>>({})
   const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
+  const [memoryDraft, setMemoryDraft] = useState('')
+  const [cpusDraft, setCpusDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -303,6 +306,8 @@ function ModulesSection({
     setSaved(false)
     setConfigDraft((module.config as Record<string, unknown>) ?? {})
     setSecretDraft({})
+    setMemoryDraft(module.resources.memory)
+    setCpusDraft(module.resources.cpus)
   }
 
   async function save(module: ModuleRow) {
@@ -317,6 +322,9 @@ function ModulesSection({
       }
       if (module.configSchema) {
         await api.put(`/api/modules/${module.id}/config`, { config: configDraft })
+      }
+      if (memoryDraft !== module.resources.memory || cpusDraft !== module.resources.cpus) {
+        await api.put(`/api/modules/${module.id}/resources`, { memory: memoryDraft, cpus: cpusDraft })
       }
       setSaved(true)
       toast.success(S.moduleConfigSaved)
@@ -385,6 +393,30 @@ function ModulesSection({
                         onChange={setConfigDraft}
                       />
                     )}
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">{S.moduleResources}</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span className="text-muted-foreground">{S.moduleMemory}</span>
+                          <Input
+                            value={memoryDraft}
+                            onChange={(e) => setMemoryDraft(e.target.value)}
+                            placeholder={module.resources.defaultMemory}
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="text-muted-foreground">{S.moduleCpus}</span>
+                          <Input
+                            value={cpusDraft}
+                            onChange={(e) => setCpusDraft(e.target.value)}
+                            placeholder={module.resources.defaultCpus}
+                          />
+                        </label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {S.moduleResourceHint(module.resources.defaultMemory, module.resources.defaultCpus)}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-3">
                       <Button size="sm" disabled={busy} onClick={() => save(module)}>
                         {busy ? S.workingEllipsis : S.moduleConfigSave}

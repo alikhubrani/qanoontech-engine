@@ -374,3 +374,40 @@ describe('the engine updating itself', () => {
     expect(response.statusCode).toBe(400)
   })
 })
+
+describe('per-module resource overrides', () => {
+  it('reports the default and accepts an override that renders as the limit', async () => {
+    const cookie = await signIn()
+    await licensed()
+
+    const before = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
+    const ocr = before.json().data.modules.find((m: { id: string }) => m.id === 'ocr')
+    expect(ocr.resources.defaultMemory).toBe('4G')
+    expect(ocr.resources.memory).toBe('4G')
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/modules/ocr/resources',
+      headers: { cookie },
+      payload: { memory: '10G', cpus: '4' },
+    })
+    expect(put.statusCode).toBe(200)
+
+    const after = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
+    const ocr2 = after.json().data.modules.find((m: { id: string }) => m.id === 'ocr')
+    expect(ocr2.resources.memory).toBe('10G')
+    expect(ocr2.resources.defaultMemory).toBe('4G')
+    expect(loadState(dir).resources.ocr).toEqual({ memory: '10G', cpus: '4' })
+  })
+
+  it('refuses a nonsense memory string', async () => {
+    const cookie = await signIn()
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/modules/ocr/resources',
+      headers: { cookie },
+      payload: { memory: 'lots' },
+    })
+    expect(put.statusCode).toBe(400)
+  })
+})

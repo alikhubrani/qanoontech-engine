@@ -158,7 +158,25 @@ describe('render', () => {
 
   it('applies the stated resource cost as a real limit', () => {
     const doc = document(['ocr'])
-    expect(doc.services.ocr.deploy.resources.limits).toEqual({ cpus: '2', memory: '2G' })
+    expect(doc.services.ocr.deploy.resources.limits).toEqual({ cpus: '2', memory: '4G' })
+  })
+
+  it('lets an operator override a module’s memory and cpu limit', () => {
+    // A bigger box gives OCR more than the catalogue default fits on a small one.
+    const resolution = resolve({ enabled: ['ocr'], config: {}, entitlements: ALL })
+    if (!resolution.ok) throw new Error('unreachable')
+    const result = render({
+      modules: resolution.modules,
+      version: '1.0.2',
+      settings,
+      secrets,
+      resources: { ocr: { memory: '10G', cpus: '4' } },
+    })
+    if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
+    const doc = parse(result.yaml)
+    expect(doc.services.ocr.deploy.resources.limits).toEqual({ cpus: '4', memory: '10G' })
+    // A module without an override keeps its catalogue default.
+    expect(doc.services.postgres.deploy.resources.limits.memory).toBe('2G')
   })
 
   it('says in the file itself that it is generated', () => {

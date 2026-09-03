@@ -45,6 +45,7 @@ export async function buildPlan(dir = stateDir()): Promise<PlanResult> {
     version: state.version,
     settings: state.settings,
     secrets,
+    resources: state.resources,
   })
 
   if (!rendered.ok) {

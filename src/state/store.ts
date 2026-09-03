@@ -58,6 +58,15 @@ const stateSchema = z.object({
   enabled: z.array(z.string()).default([]),
   /** Per-module configuration, validated against each module's own schema. */
   config: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * Per-module resource overrides, keyed by module id. The catalogue states a
+   * default that fits a modest box; an operator on a larger one raises it —
+   * OCR on a 16 GB box can have far more than the 4 GB a small box allows.
+   * Empty means "use the catalogue default".
+   */
+  resources: z
+    .record(z.string(), z.object({ memory: z.string().optional(), cpus: z.string().optional() }))
+    .default({}),
 })
 
 export type EngineState = z.infer<typeof stateSchema>
