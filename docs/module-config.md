@@ -53,6 +53,28 @@ secrets travel a separate path with different rules:
   declaration is for the form and for early, well-worded errors — it is not
   the enforcement.
 
+### Optional secrets
+
+A secret declared with `optional: true` is one the module can run without —
+`render` asks for it only in the configurations that need it. `SMTP_PASSWORD`
+on the email module is the example: it is demanded only when an SMTP user is
+set, so a firm relaying through an internal server that takes no credentials
+is not refused over a password it has no use for.
+
+What optional changes, exactly:
+
+- **Renderer.** A *required* declared secret that is unset refuses the render
+  whether or not `render` happened to read it — the declaration is a contract,
+  and a module cannot declare a secret and then quietly ship without it. An
+  *optional* one is refused only at the moment `render` actually calls
+  `ctx.secret()` for it, so with the feature off nothing is demanded and with
+  it on the error names the secret as usual. A secret missing both ways is
+  reported once.
+- **`GET /api/modules`** reports `optional: boolean` on each declared secret.
+- **`PUT /api/modules/:id/secrets`** accepts an empty value for an optional
+  secret and removes it from the store. A required secret can be replaced
+  but never cleared; an empty value for one is refused.
+
 ## Rules
 
 - Labels, help text, defaults, ranges: **on the zod schema**, via `.meta()`
@@ -62,3 +84,19 @@ secrets travel a separate path with different rules:
   would let someone try.
 - A new module with config that the field renderer cannot draw is a renderer
   gap to fix, not a reason to fall back to a JSON textarea.
+
+## Email: a module, not a setting
+
+`email` (`catalogue/modules/email.ts`) is the mailer container, modelled on
+the drive mirror: optional, off by default, entitled by `module.email`,
+reading the application database (it drains an outbox table the application
+writes) and mounting no volume. It is a container rather than settings on the
+application because the application never holds SMTP credentials, never
+blocks a request on a mail server, and a mail outage is this container's logs
+and memory limit rather than the application's. The application discovers it
+the way it discovers OCR — by asking whether it answers; there is no flag.
+
+Config fields, all with `.meta()` labels: `smtpHost` (required), `smtpPort`
+(default 587), `smtpSecure` (default off; TLS from the first byte on 465,
+STARTTLS on 587), `smtpUser` (optional), `fromAddress` (required, an email
+address). One secret, `SMTP_PASSWORD`, optional as above.

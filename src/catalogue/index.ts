@@ -1,6 +1,7 @@
 import type { AnyModule } from './types.js'
 import { app } from './modules/app.js'
 import { driveMirror } from './modules/drive-mirror.js'
+import { email } from './modules/email.js'
 import { gotenberg } from './modules/gotenberg.js'
 import { nginx } from './modules/nginx.js'
 import { ocr } from './modules/ocr.js'
@@ -23,6 +24,7 @@ export const CATALOGUE: readonly AnyModule[] = [
   gotenberg,
   ocr,
   driveMirror,
+  email,
   tunnel,
 ]
 

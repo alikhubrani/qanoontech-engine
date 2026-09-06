@@ -197,6 +197,8 @@ export interface SecretDeclaration {
   title: string
   help: string
   kind: 'json' | 'token' | 'text'
+  /** The module runs without it; an empty value on save clears it. */
+  optional?: boolean
   set: boolean
 }
 
@@ -249,6 +251,7 @@ function SecretField({
     <div className="space-y-1 text-sm">
       <div className="flex items-center gap-2">
         <span className="font-medium">{secret.title}</span>
+        {secret.optional && <span className="text-xs text-muted-foreground">{S.secretOptional}</span>}
         {secret.set && <StatusBadge tone="ok">{S.secretSet}</StatusBadge>}
       </div>
       {secret.kind === 'json' ? (

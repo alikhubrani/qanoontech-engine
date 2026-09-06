@@ -115,6 +115,15 @@ export interface ModuleSecret {
   readonly help: string
   /** Which input widget the panel shows: a JSON paste/upload, a token, or plain text. */
   readonly kind: 'json' | 'token' | 'text'
+  /**
+   * An optional secret is one the module can run without — typically because
+   * the feature that needs it is off by default, and `render` only reaches for
+   * it when that feature is on. The renderer refuses an unset *required*
+   * secret whether or not `render` asked for it; an unset optional one is
+   * refused only at the moment `render` actually asks. The panel may clear an
+   * optional secret; a required one can only be replaced.
+   */
+  readonly optional?: boolean
 }
 
 export interface ModuleDefinition<TConfig = void> {

@@ -234,6 +234,7 @@ ENGINE                              APPLICATION
 | `nginx` | reverse proxy | required | |
 | `ocr` | PaddleOCR sidecar | ~2 GB | today OCR is `tesseract` + `pdftoppm` **inside** the application container; this is a new sidecar, not a move |
 | `drive-mirror` | offsite document mirror | ~120 MB | extracted from the application's in-process worker; see below |
+| `email` | mailer: reminders and hearing changes over the firm's SMTP relay | ~180 MB | drains an outbox table the application writes; the application never holds SMTP credentials |
 | `tunnel` | Cloudflare tunnel | ~40 MB | the only inbound path |
 
 ### Google Drive — one credential, two consumers

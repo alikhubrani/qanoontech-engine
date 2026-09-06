@@ -327,6 +327,55 @@ describe('modules describe themselves to the panel', () => {
     expect(loadSecrets(dir)['GOOGLE_SERVICE_ACCOUNT_KEY']).toBe('{"type":"service_account"}')
   })
 
+  it('reports which secrets are optional, and lets only those be cleared', async () => {
+    const cookie = await signIn()
+    const listing = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
+    const modules = listing.json().data.modules as {
+      id: string
+      secrets: { name: string; optional: boolean; set: boolean }[]
+    }[]
+    const smtp = modules.find((m) => m.id === 'email')!.secrets.find((s) => s.name === 'SMTP_PASSWORD')!
+    expect(smtp.optional).toBe(true)
+    expect(modules.find((m) => m.id === 'drive-mirror')!.secrets[0]!.optional).toBe(false)
+
+    const { loadSecrets } = await import('../state/store.js')
+
+    const set = await app.inject({
+      method: 'PUT',
+      url: '/api/modules/email/secrets',
+      headers: { cookie },
+      payload: { values: { SMTP_PASSWORD: 'relay-password' } },
+    })
+    expect(set.statusCode).toBe(200)
+    expect(loadSecrets(dir)['SMTP_PASSWORD']).toBe('relay-password')
+
+    // Empty clears an optional secret — it is gone, not stored as ''.
+    const clear = await app.inject({
+      method: 'PUT',
+      url: '/api/modules/email/secrets',
+      headers: { cookie },
+      payload: { values: { SMTP_PASSWORD: '' } },
+    })
+    expect(clear.statusCode).toBe(200)
+    expect('SMTP_PASSWORD' in loadSecrets(dir)).toBe(false)
+
+    // A required secret can be replaced but never cleared.
+    await app.inject({
+      method: 'PUT',
+      url: '/api/modules/drive-mirror/secrets',
+      headers: { cookie },
+      payload: { values: { GOOGLE_SERVICE_ACCOUNT_KEY: '{"type":"service_account"}' } },
+    })
+    const refused = await app.inject({
+      method: 'PUT',
+      url: '/api/modules/drive-mirror/secrets',
+      headers: { cookie },
+      payload: { values: { GOOGLE_SERVICE_ACCOUNT_KEY: '' } },
+    })
+    expect(refused.statusCode).toBe(422)
+    expect(loadSecrets(dir)['GOOGLE_SERVICE_ACCOUNT_KEY']).toBe('{"type":"service_account"}')
+  })
+
   it('refuses a secret the module does not declare — this is not a general write path', async () => {
     const cookie = await signIn()
     for (const [module, name] of [

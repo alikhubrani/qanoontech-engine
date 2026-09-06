@@ -142,6 +142,9 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
             title: secret.title,
             help: secret.help,
             kind: secret.kind,
+            // The module can run without it; the form may say so and offer to
+            // clear it. Absent from the declaration means required.
+            optional: secret.optional ?? false,
             // Whether one is stored. The value itself has no read path.
             set: Boolean(secrets[secret.name]),
           })),
@@ -164,23 +167,46 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (!module) return refuse(reply, 404, `No module named '${id}'.`)
 
     const body = z
-      .object({ values: z.record(z.string(), z.string().min(1).max(65_536)) })
+      .object({ values: z.record(z.string(), z.string().max(65_536)) })
       .safeParse(request.body)
     if (!body.success) return refuse(reply, 400, 'Secret values are required.')
 
     // Only what the module declares. This route must never become a general
     // write path into the secret store — the generated secrets in particular
     // are generated precisely so that no one ever types them.
-    const declared = new Set(module.secrets.map((secret) => secret.name))
-    for (const name of Object.keys(body.data.values)) {
-      if (!declared.has(name)) {
+    const declared = new Map(module.secrets.map((secret) => [secret.name, secret]))
+    for (const [name, value] of Object.entries(body.data.values)) {
+      const declaration = declared.get(name)
+      if (!declaration) {
         return refuse(reply, 422, `'${module.title}' does not take a secret named ${name}.`)
+      }
+      // An empty value clears the secret. Only an optional one may be cleared:
+      // a required secret can be replaced but never removed, because a module
+      // with it missing is one that will not render.
+      if (value === '' && !declaration.optional) {
+        return refuse(reply, 422, `'${module.title}' needs ${name}; it can be replaced but not cleared.`)
       }
     }
 
-    saveSecrets({ ...loadSecrets(ctx.dir), ...body.data.values }, ctx.dir)
+    const next = { ...loadSecrets(ctx.dir) }
+    const set: string[] = []
+    const cleared: string[] = []
+    for (const [name, value] of Object.entries(body.data.values)) {
+      if (value === '') {
+        delete next[name]
+        cleared.push(name)
+      } else {
+        next[name] = value
+        set.push(name)
+      }
+    }
+    saveSecrets(next, ctx.dir)
     ctx.audit.record('module-secret-set', {
-      detail: `${id}: ${Object.keys(body.data.values).join(', ')}`,
+      detail:
+        `${id}: ` +
+        [set.join(', '), cleared.length > 0 ? `cleared ${cleared.join(', ')}` : '']
+          .filter(Boolean)
+          .join('; '),
       address: request.ip,
     })
     return { success: true, data: {} }

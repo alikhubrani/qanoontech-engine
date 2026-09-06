@@ -127,6 +127,51 @@ describe('configuration a module does not require', () => {
   })
 })
 
+describe('the email module', () => {
+  const email = CATALOGUE.find((m) => m.id === 'email')!
+  const configured = { smtpHost: 'smtp.example.com', fromAddress: 'noreply@example.com' }
+
+  it('needs its own entitlement, like every optional module', () => {
+    const result = resolve({ ...base, enabled: ['email'], config: { email: configured }, entitlements: [] })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const problem = result.problems.find((p) => p.code === 'missing-entitlement')
+    expect(problem?.moduleId).toBe('email')
+  })
+
+  it('needs a host and a sender, and nothing else', () => {
+    expect(email.config.safeParse({}).success).toBe(false)
+    expect(email.config.safeParse({ smtpHost: 'smtp.example.com' }).success).toBe(false)
+    expect(email.config.safeParse({ fromAddress: 'noreply@example.com' }).success).toBe(false)
+    expect(email.config.safeParse(configured).success).toBe(true)
+  })
+
+  it('applies the STARTTLS defaults', () => {
+    const result = resolve({ ...base, enabled: ['email'], config: { email: configured } })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const module = result.modules.find((m) => m.module.id === 'email')
+    expect(module?.config).toEqual({ ...configured, smtpPort: 587, smtpSecure: false })
+  })
+
+  it('insists the sender is an email address', () => {
+    expect(email.config.safeParse({ ...configured, fromAddress: 'not an address' }).success).toBe(false)
+  })
+
+  it('declares the SMTP password as an optional secret', () => {
+    // A relay that takes no credentials needs no password, and the renderer
+    // must not refuse one over a secret it never asks for.
+    const secret = email.secrets.find((s) => s.name === 'SMTP_PASSWORD')
+    expect(secret?.optional).toBe(true)
+    expect(secret?.kind).toBe('token')
+  })
+
+  it('reads the application database and no volume', () => {
+    expect(email.requires).toEqual(['app', 'postgres'])
+    expect(email.volumes).toEqual([])
+  })
+})
+
 describe('a module turned on but never configured', () => {
   it('is told it needs configuring, not that an object was expected', () => {
     const result = resolve({ ...base, enabled: ['drive-mirror'] })

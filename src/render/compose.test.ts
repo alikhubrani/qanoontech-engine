@@ -193,6 +193,117 @@ describe('render', () => {
     expect(result.ok).toBe(false)
   })
 
+  it('sends the application nothing about SMTP — email is a module, not a setting', () => {
+    // The application never holds SMTP credentials; it writes outbox rows and
+    // the mailer drains them. Nothing SMTP-shaped may reach the app container.
+    const doc = document(['email'], { email: { smtpHost: 'smtp.example.com', fromAddress: 'noreply@example.com' } })
+    expect(Object.keys(doc.services.app.environment).filter((k) => k.startsWith('SMTP_'))).toEqual([])
+  })
+
+  it('wires the mailer to the relay and to the application database', () => {
+    const result = renderWith(
+      ['email'],
+      {
+        email: {
+          smtpHost: 'smtp.example.com',
+          smtpPort: 465,
+          smtpSecure: true,
+          smtpUser: 'notify@example.com',
+          fromAddress: 'noreply@example.com',
+        },
+      },
+      { secrets: { ...secrets, SMTP_PASSWORD: 'smtp-secret' } },
+    )
+    if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
+    const mailer = parse(result.yaml).services.email
+    expect(mailer.image).toBe('ghcr.io/alikhubrani/qanoontech-mailer:1.0.2')
+    expect(mailer.environment.DATABASE_URL).toContain('@postgres:5432/')
+    expect(mailer.environment.DATABASE_URL).toContain('db-secret')
+    expect(mailer.environment.SMTP_HOST).toBe('smtp.example.com')
+    expect(mailer.environment.SMTP_PORT).toBe('465')
+    expect(mailer.environment.SMTP_SECURE).toBe('true')
+    expect(mailer.environment.SMTP_USER).toBe('notify@example.com')
+    expect(mailer.environment.SMTP_PASSWORD).toBe('smtp-secret')
+    expect(mailer.environment.SMTP_FROM).toBe('noreply@example.com')
+    expect(mailer.environment.PORT).toBe('3004')
+    expect(mailer.volumes).toBeUndefined()
+    expect(mailer.ports).toBeUndefined()
+    expect(mailer.depends_on).toEqual({
+      app: { condition: 'service_healthy' },
+      postgres: { condition: 'service_healthy' },
+    })
+    expect(mailer.healthcheck.test).toContain('http://localhost:3004/health')
+  })
+
+  it('sends the mailer neither user nor password for a relay that takes no credentials', () => {
+    // An internal relay that trusts the network is a real configuration. No
+    // user means no password is demanded — the secret may stay unset.
+    const doc = document(['email'], { email: { smtpHost: 'smtp.example.com', fromAddress: 'noreply@example.com' } })
+    const env = doc.services.email.environment
+    expect(env.SMTP_HOST).toBe('smtp.example.com')
+    expect(env.SMTP_USER).toBeUndefined()
+    expect(env.SMTP_PASSWORD).toBeUndefined()
+    expect(env.SMTP_PORT).toBe('587')
+    expect(env.SMTP_SECURE).toBe('false')
+  })
+
+  it('refuses an SMTP user without the SMTP password, and says which secret', () => {
+    const result = renderWith(['email'], {
+      email: { smtpHost: 'smtp.example.com', smtpUser: 'notify@example.com', fromAddress: 'noreply@example.com' },
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.problems).toHaveLength(1)
+    expect(result.problems[0]?.moduleId).toBe('email')
+    expect(result.problems[0]?.message).toContain('SMTP_PASSWORD')
+  })
+
+  it('does not demand an optional secret the render never asked for', () => {
+    // SMTP_PASSWORD is declared on the email module and is absent from the
+    // secrets above. With no SMTP user the render never reaches for it, and
+    // the declaration alone must not refuse the deployment.
+    const result = renderWith(['email'], {
+      email: { smtpHost: 'smtp.example.com', fromAddress: 'noreply@example.com' },
+    })
+    expect(result.ok).toBe(true)
+  })
+
+  it('refuses an unset required secret whether or not the render read it', () => {
+    // The declaration is a contract: a module that declares a required
+    // secret cannot quietly ship without it because its render forgot to ask.
+    const resolution = resolve({
+      enabled: ['drive-mirror'],
+      config: { 'drive-mirror': { sharedDriveId: '0ABCdef' } },
+      entitlements: ALL,
+    })
+    if (!resolution.ok) throw new Error('unreachable')
+    const mirror = resolution.modules.find((m) => m.module.id === 'drive-mirror')!
+    const forgetful = {
+      ...mirror,
+      module: { ...mirror.module, render: () => ({ image: 'x', restart: 'no' as const }) },
+    }
+    const result = render({
+      modules: resolution.modules.map((m) => (m === mirror ? forgetful : m)),
+      version: '1.0.2',
+      settings,
+      secrets: { ...secrets, GOOGLE_SERVICE_ACCOUNT_KEY: '' },
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.problems).toHaveLength(1)
+    expect(result.problems[0]?.message).toContain('GOOGLE_SERVICE_ACCOUNT_KEY')
+  })
+
+  it('reports a missing secret once, however many ways it was wanted', () => {
+    // Declared and asked for: one problem, not two.
+    const result = renderWith(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } }, {
+      secrets: { ...secrets, GOOGLE_SERVICE_ACCOUNT_KEY: '' },
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.problems.filter((p) => p.message.includes('GOOGLE_SERVICE_ACCOUNT_KEY'))).toHaveLength(1)
+  })
+
   it('gives the drive mirror the application database and never a write mount', () => {
     const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
     const mirror = doc.services['drive-mirror']
