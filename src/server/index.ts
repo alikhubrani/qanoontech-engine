@@ -121,6 +121,10 @@ export async function startServer(port = 8080, host = '0.0.0.0'): Promise<void> 
 }
 
 function engineVersion(): string {
+  // The image bakes the release tag in; package.json is the fallback for a
+  // checkout run by hand and is the number that once lagged behind the tag.
+  const baked = process.env.ENGINE_VERSION?.trim()
+  if (baked && baked !== 'dev') return baked
   try {
     const here = dirname(fileURLToPath(import.meta.url))
     for (const relative of ['../../package.json', '../../../package.json']) {

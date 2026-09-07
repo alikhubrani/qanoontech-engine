@@ -16,6 +16,7 @@ COPY src/ src/
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
+ARG VERSION=dev
 # docker-cli + compose plugin: the engine's whole job is driving the daemon
 # through the mounted socket. pg_dump arrives with the backup work (phase 5).
 RUN apk add --no-cache docker-cli docker-cli-compose bash
@@ -27,7 +28,7 @@ COPY package.json ./
 
 # Unprivileged, with the docker group added at run time by group_add or by the
 # installer reading the socket's gid — the same arrangement the panel used.
-ENV NODE_ENV=production ENGINE_STATE_DIR=/var/lib/qanoontech-engine
+ENV NODE_ENV=production ENGINE_STATE_DIR=/var/lib/qanoontech-engine ENGINE_VERSION=$VERSION
 EXPOSE 8080
 VOLUME /var/lib/qanoontech-engine
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
