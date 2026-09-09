@@ -256,6 +256,51 @@ describe('render', () => {
     expect(mailer.healthcheck.test).toContain('http://localhost:3004/health')
   })
 
+  it('sends the mailer the Microsoft OAuth settings, and no password', () => {
+    const result = renderWith(
+      ['email'],
+      {
+        email: {
+          smtpHost: 'smtp.office365.com',
+          smtpPort: 587,
+          smtpSecure: false,
+          authMode: 'oauth-microsoft',
+          smtpUser: 'notify@example.com',
+          oauthTenantId: 'tenant-guid',
+          oauthClientId: 'client-guid',
+          fromAddress: 'notify@example.com',
+        },
+      },
+      { secrets: { ...secrets, SMTP_PASSWORD: 'smtp-secret', SMTP_OAUTH_SECRET: 'oauth-secret' } },
+    )
+    if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
+    const env = parse(result.yaml).services.email.environment
+    expect(env.SMTP_AUTH_MODE).toBe('oauth-microsoft')
+    expect(env.SMTP_USER).toBe('notify@example.com')
+    expect(env.SMTP_OAUTH_TENANT).toBe('tenant-guid')
+    expect(env.SMTP_OAUTH_CLIENT_ID).toBe('client-guid')
+    expect(env.SMTP_OAUTH_SECRET).toBe('oauth-secret')
+    // The password is set and still must not travel: an unused credential in
+    // a container's environment is one more thing that can leak.
+    expect(env.SMTP_PASSWORD).toBeUndefined()
+  })
+
+  it('refuses Microsoft OAuth without its client secret, and says which one', () => {
+    const result = renderWith(['email'], {
+      email: {
+        smtpHost: 'smtp.office365.com',
+        authMode: 'oauth-microsoft',
+        smtpUser: 'notify@example.com',
+        oauthTenantId: 'tenant-guid',
+        oauthClientId: 'client-guid',
+        fromAddress: 'notify@example.com',
+      },
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.problems[0]?.message).toContain('SMTP_OAUTH_SECRET')
+  })
+
   it('sends the mailer neither user nor password for a relay that takes no credentials', () => {
     // An internal relay that trusts the network is a real configuration. No
     // user means no password is demanded — the secret may stay unset.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { CATALOGUE, REQUIRED_MODULE_IDS, resolve } from './index.js'
 
 const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !== undefined)
@@ -157,11 +158,43 @@ describe('the email module', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const module = result.modules.find((m) => m.module.id === 'email')
-    expect(module?.config).toEqual({ ...configured, smtpPort: 587, smtpSecure: false })
+    expect(module?.config).toEqual({ ...configured, smtpPort: 587, smtpSecure: false, authMode: 'basic' })
   })
 
   it('insists the sender is an email address', () => {
     expect(email.config.safeParse({ ...configured, fromAddress: 'not an address' }).success).toBe(false)
+  })
+
+  it('demands the Microsoft settings when the mode is Microsoft OAuth', () => {
+    // Refused here, rather than discovered by a mailer that boots unhealthy
+    // and answers /health with a list of what it was not told.
+    const partial = email.config.safeParse({ ...configured, authMode: 'oauth-microsoft' })
+    expect(partial.success).toBe(false)
+    if (!partial.success) {
+      const paths = partial.error.issues.map((i) => i.path.join('.')).sort()
+      expect(paths).toEqual(['oauthClientId', 'oauthTenantId', 'smtpUser'])
+    }
+
+    expect(
+      email.config.safeParse({
+        ...configured,
+        authMode: 'oauth-microsoft',
+        smtpUser: 'notify@example.com',
+        oauthTenantId: '00000000-0000-0000-0000-000000000000',
+        oauthClientId: '11111111-1111-1111-1111-111111111111',
+      }).success
+    ).toBe(true)
+  })
+
+  it('renders a form, which a discriminated union would not', () => {
+    // The Deploy page walks schema.properties; `anyOf` draws as nothing at
+    // all. This is the test that fails if someone tidies the schema into the
+    // union it looks like it wants to be.
+    const schema = z.toJSONSchema(email.config, { io: 'input' }) as {
+      properties?: Record<string, { enum?: string[] }>
+    }
+    expect(Object.keys(schema.properties ?? {})).toContain('authMode')
+    expect(schema.properties?.authMode?.enum).toEqual(['basic', 'oauth-microsoft'])
   })
 
   it('declares the SMTP password as an optional secret', () => {
