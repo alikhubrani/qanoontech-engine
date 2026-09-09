@@ -330,6 +330,28 @@ program
       process.exit(1)
     }
 
+    /*
+     * Log the daemon in before anything reaches the registry.
+     *
+     * The web path does this (server/jobs.ts) and this one did not, so an
+     * apply from the command line worked only while a login happened to be
+     * left in the engine container's filesystem. Replacing the container --
+     * which `self-update` does -- wipes that, and the next apply fails
+     * `unauthorized` even though every image is public to the host's own
+     * docker. Both paths now stand on the stored credential rather than on a
+     * side effect of whatever was run before.
+     */
+    const { REGISTRY, storedRegistryAuth } = await import('./registry.js')
+    const auth = storedRegistryAuth()
+    if (auth) {
+      const loggedIn = await docker.login(REGISTRY, auth.username, auth.token)
+      if (loggedIn.code !== 0) {
+        console.error('The registry refused the stored credential. Nothing has been touched.')
+        console.error(loggedIn.stderr.trim())
+        process.exit(1)
+      }
+    }
+
     // Pull before touching anything running: an update that fails to download
     // has changed nothing, which is what makes it safe to attempt.
     if (!options.skipPull) {
