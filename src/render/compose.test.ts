@@ -68,6 +68,23 @@ describe('render', () => {
     expect(doc.services.app.environment.GOTENBERG_URL).toBe('http://gotenberg:3000')
   })
 
+  /*
+   * The name has to match the service the email module renders, and the two
+   * were set in different repositories and did not. Named here so a rename on
+   * either side fails a test rather than silently switching email off.
+   */
+  it('tells the application where to queue email, by the name the module has', () => {
+    const doc = document()
+    expect(doc.services.app.environment.MAILER_URL).toBe('http://email:3004')
+    // No smtpUser, so no SMTP_PASSWORD secret is demanded: a relay that trusts
+    // the network is a real configuration, and this test is about the hostname.
+    const withEmail = document(['email'], {
+      email: { smtpHost: 'smtp.example.com', smtpPort: 587, smtpSecure: false, fromAddress: 'noreply@example.com' },
+    })
+    expect(Object.keys(withEmail.services)).toContain('email')
+    expect(withEmail.services.app.environment.MAILER_URL).toBe('http://email:3004')
+  })
+
 
   it('tags our images with the deployment version and leaves pinned ones alone', () => {
     const doc = document(['tunnel'], { tunnel: { privateRange: '10.77.42.0/24' } })

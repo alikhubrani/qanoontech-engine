@@ -51,6 +51,14 @@ export const app = defineModule({
         // Where the application renders documents to PDF. It uses this because
         // the container answers, not because a flag says so.
         GOTENBERG_URL: 'http://gotenberg:3000',
+        // And where it queues email. Named here rather than left to the
+        // application's default, which was `mailer` -- a host no deployment
+        // has, since this catalogue calls the module `email`. The probe failed,
+        // the application concluded there was no email module, and nothing was
+        // ever queued. Set unconditionally: the module being off means nothing
+        // answers, which is exactly what the application checks for, so there
+        // is no need to read another module's state to decide.
+        MAILER_URL: 'http://email:3004',
       },
       volumes: [
         { volume: 'uploads_data', path: '/app/uploads' },
