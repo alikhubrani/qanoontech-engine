@@ -86,7 +86,7 @@ async function licensed(): Promise<void> {
     firmName: 'Al-Mithal Law Firm',
     issuedAt: new Date(Date.now() - DAY).toISOString(),
     expiresAt: new Date(Date.now() + 365 * DAY).toISOString(),
-    entitlements: ['module.ocr'],
+    entitlements: ['module.drive-mirror'],
     seats: 0,
     heartbeat: { url: 'https://licence.example/hb', intervalHours: 24, graceDays: 30 },
     override: false,
@@ -128,10 +128,10 @@ describe('modules over the API', () => {
   it('enables, disables, and refuses the required', async () => {
     const cookie = await signIn()
     expect(
-      (await app.inject({ method: 'POST', url: '/api/modules/ocr/enable', headers: { cookie } }))
+      (await app.inject({ method: 'POST', url: '/api/modules/drive-mirror/enable', headers: { cookie } }))
         .statusCode,
     ).toBe(200)
-    expect(loadState(dir).enabled).toContain('ocr')
+    expect(loadState(dir).enabled).toContain('drive-mirror')
 
     expect(
       (await app.inject({ method: 'POST', url: '/api/modules/postgres/disable', headers: { cookie } }))
@@ -139,10 +139,10 @@ describe('modules over the API', () => {
     ).toBe(409)
 
     expect(
-      (await app.inject({ method: 'POST', url: '/api/modules/ocr/disable', headers: { cookie } }))
+      (await app.inject({ method: 'POST', url: '/api/modules/drive-mirror/disable', headers: { cookie } }))
         .statusCode,
     ).toBe(200)
-    expect(loadState(dir).enabled).not.toContain('ocr')
+    expect(loadState(dir).enabled).not.toContain('drive-mirror')
   })
 
   it('validates module config against its schema', async () => {
@@ -381,7 +381,7 @@ describe('modules describe themselves to the panel', () => {
     for (const [module, name] of [
       ['drive-mirror', 'DB_PASSWORD'],
       ['drive-mirror', 'JWT_SECRET'],
-      ['ocr', 'GOOGLE_SERVICE_ACCOUNT_KEY'],
+      ['email', 'GOOGLE_SERVICE_ACCOUNT_KEY'],
     ] as const) {
       const put = await app.inject({
         method: 'PUT',
@@ -430,30 +430,30 @@ describe('per-module resource overrides', () => {
     await licensed()
 
     const before = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
-    const ocr = before.json().data.modules.find((m: { id: string }) => m.id === 'ocr')
-    expect(ocr.resources.defaultMemory).toBe('4G')
-    expect(ocr.resources.memory).toBe('4G')
+    const mirror = before.json().data.modules.find((m: { id: string }) => m.id === 'drive-mirror')
+    expect(mirror.resources.defaultMemory).toBe('512M')
+    expect(mirror.resources.memory).toBe('512M')
 
     const put = await app.inject({
       method: 'PUT',
-      url: '/api/modules/ocr/resources',
+      url: '/api/modules/drive-mirror/resources',
       headers: { cookie },
       payload: { memory: '10G', cpus: '4' },
     })
     expect(put.statusCode).toBe(200)
 
     const after = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
-    const ocr2 = after.json().data.modules.find((m: { id: string }) => m.id === 'ocr')
-    expect(ocr2.resources.memory).toBe('10G')
-    expect(ocr2.resources.defaultMemory).toBe('4G')
-    expect(loadState(dir).resources.ocr).toEqual({ memory: '10G', cpus: '4' })
+    const mirror2 = after.json().data.modules.find((m: { id: string }) => m.id === 'drive-mirror')
+    expect(mirror2.resources.memory).toBe('10G')
+    expect(mirror2.resources.defaultMemory).toBe('512M')
+    expect(loadState(dir).resources['drive-mirror']).toEqual({ memory: '10G', cpus: '4' })
   })
 
   it('refuses a nonsense memory string', async () => {
     const cookie = await signIn()
     const put = await app.inject({
       method: 'PUT',
-      url: '/api/modules/ocr/resources',
+      url: '/api/modules/drive-mirror/resources',
       headers: { cookie },
       payload: { memory: 'lots' },
     })

@@ -15,13 +15,13 @@ describe('resolve', () => {
   })
 
   it('orders dependencies before the modules that need them', () => {
-    const result = resolve({ ...base, enabled: ['ocr'], config: {} })
+    const result = resolve({ ...base, enabled: ['drive-mirror'], config: { 'drive-mirror': { sharedDriveId: 'abc' } } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const ids = result.modules.map((m) => m.module.id)
     expect(ids.indexOf('postgres')).toBeLessThan(ids.indexOf('app'))
     expect(ids.indexOf('app')).toBeLessThan(ids.indexOf('nginx'))
-    expect(ids.indexOf('app')).toBeLessThan(ids.indexOf('ocr'))
+    expect(ids.indexOf('app')).toBeLessThan(ids.indexOf('drive-mirror'))
   })
 
   it('refuses a module the catalogue does not define', () => {
@@ -32,11 +32,16 @@ describe('resolve', () => {
   })
 
   it('refuses an optional module the licence does not entitle', () => {
-    const result = resolve({ ...base, enabled: ['ocr'], entitlements: [] })
+    const result = resolve({
+      ...base,
+      enabled: ['drive-mirror'],
+      config: { 'drive-mirror': { sharedDriveId: 'abc' } },
+      entitlements: [],
+    })
     expect(result.ok).toBe(false)
     if (result.ok) return
     const problem = result.problems.find((p) => p.code === 'missing-entitlement')
-    expect(problem?.moduleId).toBe('ocr')
+    expect(problem?.moduleId).toBe('drive-mirror')
   })
 
   it('deploys the system itself without any entitlement', () => {
@@ -48,11 +53,12 @@ describe('resolve', () => {
   })
 
   it('applies a module’s configuration defaults', () => {
-    const result = resolve({ ...base, enabled: ['ocr'] })
+    const result = resolve({ ...base, enabled: ['drive-mirror'], config: { 'drive-mirror': { sharedDriveId: 'abc' } } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const ocr = result.modules.find((m) => m.module.id === 'ocr')
-    expect(ocr?.config).toEqual({ languages: ['ar', 'en'], maxConcurrency: 1 })
+    const mirror = result.modules.find((m) => m.module.id === 'drive-mirror')
+    // Only the id was given; the size limit is the schema's default.
+    expect(mirror?.config).toEqual({ sharedDriveId: 'abc', maxFileSizeBytes: 1_073_741_824 })
   })
 
   it('refuses configuration that does not match the schema', () => {
@@ -69,7 +75,7 @@ describe('resolve', () => {
   it('collects every problem rather than stopping at the first', () => {
     const result = resolve({
       ...base,
-      enabled: ['ocr', 'drive-mirror', 'nonsense'],
+      enabled: ['email', 'drive-mirror', 'nonsense'],
       config: { 'drive-mirror': {} },
       entitlements: [],
     })

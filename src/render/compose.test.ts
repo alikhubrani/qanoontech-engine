@@ -126,18 +126,17 @@ describe('render', () => {
   })
 
   it('declares every volume a rendered module asked for, once', () => {
-    const doc = document(['ocr'])
+    const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
     expect(Object.keys(doc.volumes).sort()).toEqual(['logs_data', 'postgres_data', 'uploads_data'])
   })
 
   it('mounts the documents volume read-only wherever it is not the application', () => {
-    // A mirror copies out and a recogniser reads a page. Neither has any
-    // business writing to the volume holding the firm's documents.
-    const doc = document(['ocr', 'drive-mirror'], {
+    // A mirror copies out and nginx serves a file. Neither has any business
+    // writing to the volume holding the firm's documents.
+    const doc = document(['drive-mirror'], {
       'drive-mirror': { sharedDriveId: '0ABCdef' },
     })
     expect(doc.services.nginx.volumes).toContain('uploads_data:/app/uploads:ro')
-    expect(doc.services.ocr.volumes).toContain('uploads_data:/app/uploads:ro')
     expect(doc.services['drive-mirror'].volumes).toContain('uploads_data:/app/uploads:ro')
     expect(doc.services.app.volumes).toContain('uploads_data:/app/uploads')
   })
@@ -174,24 +173,29 @@ describe('render', () => {
   })
 
   it('applies the stated resource cost as a real limit', () => {
-    const doc = document(['ocr'])
-    expect(doc.services.ocr.deploy.resources.limits).toEqual({ cpus: '2', memory: '4G' })
+    const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
+    expect(doc.services['drive-mirror'].deploy.resources.limits).toEqual({ cpus: '0.5', memory: '512M' })
   })
 
   it('lets an operator override a module’s memory and cpu limit', () => {
-    // A bigger box gives OCR more than the catalogue default fits on a small one.
-    const resolution = resolve({ enabled: ['ocr'], config: {}, entitlements: ALL })
+    // A bigger box can give a module more than the catalogue default, which is
+    // sized for a small one.
+    const resolution = resolve({
+      enabled: ['drive-mirror'],
+      config: { 'drive-mirror': { sharedDriveId: '0ABCdef' } },
+      entitlements: ALL,
+    })
     if (!resolution.ok) throw new Error('unreachable')
     const result = render({
       modules: resolution.modules,
       version: '1.0.2',
       settings,
       secrets,
-      resources: { ocr: { memory: '10G', cpus: '4' } },
+      resources: { 'drive-mirror': { memory: '10G', cpus: '4' } },
     })
     if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
     const doc = parse(result.yaml)
-    expect(doc.services.ocr.deploy.resources.limits).toEqual({ cpus: '4', memory: '10G' })
+    expect(doc.services['drive-mirror'].deploy.resources.limits).toEqual({ cpus: '4', memory: '10G' })
     // A module without an override keeps its catalogue default.
     expect(doc.services.postgres.deploy.resources.limits.memory).toBe('2G')
   })

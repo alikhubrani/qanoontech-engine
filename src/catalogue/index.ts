@@ -4,7 +4,6 @@ import { driveMirror } from './modules/drive-mirror.js'
 import { email } from './modules/email.js'
 import { gotenberg } from './modules/gotenberg.js'
 import { nginx } from './modules/nginx.js'
-import { ocr } from './modules/ocr.js'
 import { postgres } from './modules/postgres.js'
 import { tunnel } from './modules/tunnel.js'
 
@@ -22,7 +21,6 @@ export const CATALOGUE: readonly AnyModule[] = [
   app,
   nginx,
   gotenberg,
-  ocr,
   driveMirror,
   email,
   tunnel,

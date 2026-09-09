@@ -19,7 +19,7 @@ Payload, version 1:
 | `licenceId` | unique per issued licence |
 | `firmId`, `firmName` | whose it is; the name is shown in the panel |
 | `issuedAt`, `expiresAt` | ISO 8601 |
-| `entitlements` | catalogue entitlement keys, e.g. `module.ocr` |
+| `entitlements` | catalogue entitlement keys, e.g. `module.email` |
 | `seats` | permitted active users; `0` is unlimited |
 | `heartbeat.url` | where to phone |
 | `heartbeat.intervalHours` | how often a confirmation is expected |

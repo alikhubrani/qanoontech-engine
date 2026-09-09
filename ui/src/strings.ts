@@ -89,7 +89,7 @@ export const S = {
   moduleMemory: 'Memory limit',
   moduleCpus: 'CPU limit',
   moduleResourceHint: (mem: string, cpus: string) =>
-    `Default ${mem} memory, ${cpus} CPU. Raise these on a larger box — e.g. give OCR more memory where the machine has it.`,
+    `Default ${mem} memory, ${cpus} CPU. Raise these on a larger box, where a module has room to use more.`,
   secretSet: 'set',
   secretOptional: 'optional',
   secretReplacePlaceholder: 'Already set — enter a value to replace it',
