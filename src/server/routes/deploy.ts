@@ -14,6 +14,11 @@ const settingsPatchSchema = z.object({
   appPort: z.number().int().min(1).max(65535).optional(),
   timezone: z.string().min(1).optional(),
   defaultLanguage: z.enum(['ar', 'en']).optional(),
+  // Absent until now, which meant the one setting deciding whether a box keeps
+  // any diagnostic record was write-once at install and unreachable afterwards
+  // -- not from this endpoint, not from the CLI. An operator has to be able to
+  // turn the logs up when something is wrong and down when it is not.
+  logLevel: z.enum(['error', 'warn', 'info', 'debug']).optional(),
   backupOffsiteEnabled: z.boolean().optional(),
   backupOffsiteDriveId: z.string().optional(),
 })

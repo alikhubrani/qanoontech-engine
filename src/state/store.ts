@@ -26,7 +26,27 @@ const settingsSchema = z.object({
   dbUser: z.string().min(1).default('qanoontech'),
   timezone: z.string().min(1).default('Asia/Riyadh'),
   defaultLanguage: z.enum(['ar', 'en']).default('ar'),
-  logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('warn'),
+  /**
+   * `info`, not `warn`.
+   *
+   * At `warn` a deployment keeps almost nothing: measured on a firm's box, 757
+   * log lines over nine days -- 731 warn, 26 error, **zero info**. Everything
+   * the application logs at `info` was discarded, which included the record of
+   * who read what, every successful sign-in, "database connected", and the
+   * entire shutdown sequence. A box nobody is watching should say what it did,
+   * not only what went wrong.
+   *
+   * Safe to raise now that the application rotates its diagnostic logs daily and
+   * keeps thirty days, rather than filling a size cap and silently discarding
+   * the oldest. The *audit* trail is a separate stream with its own twelve-month
+   * retention and is not governed by this setting at all -- deliberately, so
+   * that turning the noise down cannot turn the record off.
+   *
+   * Existing deployments are unaffected: this value is written into state.json
+   * at first save, so a default only reaches a new install. Changing an existing
+   * one is what the settings endpoint is for.
+   */
+  logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   maxFileSizeBytes: z.number().int().positive().default(52_428_800),
   /**
    * The nightly backup runs at this hour, read in `timezone`. Two in the
