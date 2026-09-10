@@ -111,6 +111,41 @@ describe('settings', () => {
     expect(state.settings.appPort).toBe(8080)
   })
 
+  /**
+   * The setting deciding whether a box keeps any diagnostic record at all was
+   * missing from the patch schema, so it was written once at install and could
+   * not be changed afterwards from anywhere -- not this endpoint, not the CLI.
+   * An operator has to be able to turn the logs up when something is wrong.
+   */
+  it('lets an operator change the log level', async () => {
+    const cookie = await signIn()
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      headers: { cookie },
+      payload: { logLevel: 'debug' },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(loadState(dir).settings.logLevel).toBe('debug')
+  })
+
+  it('refuses a log level that is not one of the four', async () => {
+    const cookie = await signIn()
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      headers: { cookie },
+      payload: { logLevel: 'chatty' },
+    })
+    expect(put.statusCode).toBe(400)
+  })
+
+  it('defaults a new deployment to info, not warn', () => {
+    // At warn a box kept 731 warnings, 26 errors and zero info lines over nine
+    // days -- no record of who read what, and no successful sign-ins.
+    expect(loadState(dir).settings.logLevel).toBe('info')
+  })
+
   it('accepts a wildcard bind address — deployments are LAN-open by design', async () => {
     const cookie = await signIn()
     const put = await app.inject({
