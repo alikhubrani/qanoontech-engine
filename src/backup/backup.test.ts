@@ -31,6 +31,7 @@ import { backupDue } from './schedule.js'
 import {
   keptBackupIds,
   listBackups,
+  newestBackupAt,
   newBackupId,
   pruneBackups,
   restoreBackup,
@@ -232,6 +233,32 @@ describe('the schedule', () => {
     const now = day(15)
     expect(backupDue({ newestAt: now - 25 * HOUR, newestFullAt: now - 25 * HOUR, now, ...base })).not.toBe('none')
     expect(backupDue({ newestAt: now - 2 * HOUR, newestFullAt: freshFull(now), now, ...base })).toBe('database')
+  })
+
+  /*
+   * The bug that stopped a firm's backups for three days, in both the place it
+   * was caused and the place it was felt.
+   */
+  describe('a manifest that does not say when', () => {
+    it('is not a backup, so the schedule sees the one before it', () => {
+      const root = join(dir, 'backups')
+      const id = newBackupId(new Date())
+      mkdirSync(join(root, id), { recursive: true })
+      // Exactly what was on the firm's box beside a hand-made set.
+      writeFileSync(
+        join(root, id, 'manifest.json'),
+        JSON.stringify({ taken: 'manual, after the 1.8.0 deploy', version: '1.8.0' }),
+      )
+      expect(listBackups(dir).some((set) => set.id === id)).toBe(false)
+      expect(newestBackupAt(dir)).toBeUndefined()
+    })
+
+    it('never leaves the scheduler with a number it cannot reason about', () => {
+      const now = day(15)
+      // NaN compares false against everything, so before this it read as
+      // "backed up a moment ago" and nothing was ever taken again.
+      expect(backupDue({ newestAt: Number.NaN, newestFullAt: Number.NaN, now, ...base })).toBe('full')
+    })
   })
 
   describe('the daily full set', () => {

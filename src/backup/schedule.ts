@@ -57,6 +57,17 @@ export function backupDue(input: {
   const { newestAt, newestFullAt, now, backupHour, intervalMinutes, timezone } = input
 
   /*
+   * Belt and braces against the failure that stopped a firm's backups.
+   *
+   * `newestBackupAt` no longer returns NaN, but this predicate is the thing
+   * that decides whether a database gets copied, and a number it cannot reason
+   * about must mean "back up", never "do nothing". Every comparison below is
+   * false against NaN, so without this line an unusable input reads exactly
+   * like "a backup was taken a moment ago".
+   */
+  if (newestAt !== undefined && !Number.isFinite(newestAt)) return 'full'
+
+  /*
    * The daily full set wins when it is due, because it is also a database
    * snapshot -- taking both in the same tick would store the database twice.
    */

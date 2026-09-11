@@ -47,6 +47,38 @@ function containerPath(id: string, file: string): string {
   return `/state/${BACKUPS_DIR}/${id}/${file}`
 }
 
+/**
+ * A manifest is only a manifest if it says when.
+ *
+ * "Is this an object" used to be the whole test, and an object is what a
+ * hand-written file is. On the firm's box somebody dropped a set in by hand
+ * with `{"taken":"manual, after the 1.8.0 deploy","version":"1.8.0"}` beside
+ * it — plausible, readable, and not this shape. `listBackups` accepted it, its
+ * `takenAt` was `undefined`, `newestBackupAt` returned `Date.parse(undefined)`
+ * — **NaN** — and every comparison in `backupDue` is false against NaN. The
+ * scheduled backup stopped that day and would never have resumed. Three days
+ * passed before anyone looked.
+ *
+ * So the gate is the field the schedule depends on, and nothing else about the
+ * manifest is trusted to be there either.
+ */
+function readManifest(dir: string, id: string): BackupManifest | null {
+  const raw = readJsonFile(join(backupsRoot(dir), id, 'manifest.json'), { lenient: true })
+  if (!raw || typeof raw !== 'object') return null
+  const candidate = raw as Partial<BackupManifest>
+  if (typeof candidate.takenAt !== 'string' || !Number.isFinite(Date.parse(candidate.takenAt))) {
+    return null
+  }
+  return {
+    takenAt: candidate.takenAt,
+    trigger: candidate.trigger ?? 'manual',
+    appVersion: candidate.appVersion ?? 'unknown',
+    includesUploads: candidate.includesUploads === true,
+    databaseBytes: Number(candidate.databaseBytes) || 0,
+    uploadsBytes: Number(candidate.uploadsBytes) || 0,
+  }
+}
+
 export function listBackups(dir = stateDir()): BackupSet[] {
   let names: string[]
   try {
@@ -56,17 +88,24 @@ export function listBackups(dir = stateDir()): BackupSet[] {
   }
   const sets: BackupSet[] = []
   for (const id of names.filter((name) => ID_PATTERN.test(name)).sort().reverse()) {
-    const manifest = readJsonFile(join(backupsRoot(dir), id, 'manifest.json'), { lenient: true })
-    if (manifest && typeof manifest === 'object') {
-      sets.push({ id, ...(manifest as BackupManifest) })
-    }
+    const manifest = readManifest(dir, id)
+    if (manifest) sets.push({ id, ...manifest })
   }
   return sets
 }
 
+/**
+ * When the newest set was taken, or `undefined` — never NaN.
+ *
+ * `undefined` means "no backup", which every caller already handles as overdue.
+ * NaN means the same thing and is handled by nobody, because it compares false
+ * against everything. That difference stopped a firm's backups for three days.
+ */
 export function newestBackupAt(dir = stateDir()): number | undefined {
   const [newest] = listBackups(dir)
-  return newest ? Date.parse(newest.takenAt) : undefined
+  if (!newest) return undefined
+  const at = Date.parse(newest.takenAt)
+  return Number.isFinite(at) ? at : undefined
 }
 
 /**
@@ -79,7 +118,9 @@ export function newestBackupAt(dir = stateDir()): number | undefined {
  */
 export function newestFullBackupAt(dir = stateDir()): number | undefined {
   const full = listBackups(dir).find((set) => set.includesUploads)
-  return full ? Date.parse(full.takenAt) : undefined
+  if (!full) return undefined
+  const at = Date.parse(full.takenAt)
+  return Number.isFinite(at) ? at : undefined
 }
 
 export interface BackupOutcome {
