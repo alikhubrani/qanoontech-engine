@@ -367,6 +367,70 @@ export async function restoreDatabase(
   )
 }
 
+/**
+ * Run SQL against the server, in a named database, and hand back stdout.
+ *
+ * The drill needs three things the restore path does not: a scratch database
+ * to create, row counts to read out of it, and the scratch database dropped
+ * again. `PGDATABASE` is the connection target rather than the subject, so
+ * creating `drill_x` means connecting to `postgres` and asking for it.
+ */
+export async function psqlQuery(
+  target: DatabaseTarget,
+  sql: string,
+  options?: DockerOptions & { readonly database?: string },
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--network', PROJECT_NETWORK,
+      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      POSTGRES_HELPER_IMAGE,
+      'psql', '-h', 'postgres', '-t', '-A', '--set', 'ON_ERROR_STOP=1', '-c', sql,
+    ],
+    {
+      ...options,
+      env: {
+        PGPASSWORD: target.password,
+        PGUSER: target.dbUser,
+        PGDATABASE: options?.database ?? target.dbName,
+      },
+    },
+  )
+}
+
+/**
+ * Replay a dump into a database that is not the live one.
+ *
+ * Same image and same pipe as `restoreDatabase`, pointed elsewhere. Separate
+ * so that nothing which takes a database name can be handed the live one by a
+ * caller that meant to drill.
+ */
+export async function restoreDatabaseInto(
+  target: DatabaseTarget,
+  database: string,
+  inPath: string,
+  options?: DockerOptions,
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--network', PROJECT_NETWORK,
+      '--volume', `${ENGINE_VOLUME}:/state:ro`,
+      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      POSTGRES_HELPER_IMAGE,
+      'sh', '-c',
+      `gunzip -c ${inPath} | psql -h postgres --set ON_ERROR_STOP=0 -q`,
+    ],
+    {
+      ...options,
+      env: { PGPASSWORD: target.password, PGUSER: target.dbUser, PGDATABASE: database },
+    },
+  )
+}
+
 export async function archiveUploads(outPath: string, options?: DockerOptions): Promise<CommandResult> {
   return run(
     'docker',

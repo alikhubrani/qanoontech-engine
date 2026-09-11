@@ -192,6 +192,54 @@ secrets
 // Preflight, versions, rollback
 // ---------------------------------------------------------------------------
 
+/**
+ * Backups, and the one command that proves they are backups.
+ */
+const backup = program.command('backup').description('Copies of the database, and proving one restores')
+
+backup
+  .command('list')
+  .description('Every set on this box, newest first')
+  .action(async () => {
+    const { listBackups } = await import('./backup/service.js')
+    const sets = listBackups()
+    if (sets.length === 0) {
+      console.log('No backups yet.')
+      return
+    }
+    for (const set of sets) {
+      const size = ((set.databaseBytes + set.uploadsBytes) / 1024 / 1024).toFixed(1)
+      console.log(`${set.id}  ${set.trigger.padEnd(11)} ${size.padStart(6)} MB${set.includesUploads ? '  +documents' : ''}`)
+    }
+    console.log(`\n${sets.length} set(s).`)
+  })
+
+backup
+  .command('now')
+  .description('Take a set right now')
+  .option('--database-only', 'skip the documents archive')
+  .action(async (options: { databaseOnly?: boolean }) => {
+    const { takeBackup } = await import('./backup/service.js')
+    const outcome = await takeBackup('manual', undefined, options.databaseOnly ? 'database' : 'full')
+    console.log(outcome.detail)
+    process.exit(outcome.ok ? 0 : 1)
+  })
+
+backup
+  .command('drill [id]')
+  .description('Restore a set into a scratch database and time it — the only proof a backup is one')
+  .action(async (id?: string) => {
+    const { runDrill } = await import('./backup/drill.js')
+    console.log('Restoring into a scratch database. The live one is not touched.')
+    const result = await runDrill(id)
+    console.log(result.detail)
+    if (result.ok && result.restoreMs !== undefined) {
+      console.log(`\nRecovery time for the database: ${(result.restoreMs / 1000).toFixed(1)}s.`)
+      console.log('Documents restore separately and are the slower half; this number is the database alone.')
+    }
+    process.exit(result.ok ? 0 : 1)
+  })
+
 program
   .command('preflight')
   .description('Check this machine before installing, or after anything changed')
@@ -359,6 +407,34 @@ program
       const pulled = await docker.pull({ onOutput: (c) => process.stderr.write(c) })
       if (pulled.code !== 0) {
         console.error('Download failed. Nothing running has been touched.')
+        process.exit(1)
+      }
+    }
+
+    /*
+     * Back up before touching anything running -- the same rule the web path
+     * has had since it was written, and the same asymmetry this command
+     * already had once and fixed for the registry login a few lines up.
+     *
+     * It mattered more than an inconsistency. `apply` runs
+     * `prisma migrate deploy` against live data, which is the highest-risk
+     * moment a deployment has, and the application repository's CLAUDE.md
+     * told everyone "apply does not take a backup, take one by hand" -- so
+     * whether a firm's database was protected during a migration depended on
+     * whether the person deploying had read a paragraph in another repository
+     * and remembered it.
+     *
+     * A failed backup aborts exactly like a failed pull: nothing running has
+     * been touched. The exception is the first deploy, where there is no
+     * database yet and nothing to protect.
+     */
+    const { listBackups, takeBackup } = await import('./backup/service.js')
+    if (listBackups().length > 0) {
+      console.log('Backing up before touching anything…')
+      const backup = await takeBackup('pre-update')
+      console.log(backup.detail)
+      if (!backup.ok) {
+        console.error('Deploy stopped. Nothing running has been touched.')
         process.exit(1)
       }
     }

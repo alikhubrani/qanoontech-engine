@@ -49,9 +49,33 @@ const settingsSchema = z.object({
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   maxFileSizeBytes: z.number().int().positive().default(52_428_800),
   /**
-   * The nightly backup runs at this hour, read in `timezone`. Two in the
-   * morning Riyadh time by default: a full dump and a tar of every document
-   * is not something to run while the office is working.
+   * How often the database is snapshotted, in minutes. Hourly by default.
+   *
+   * This used to be daily, and the exposure was worse than that sounds: the
+   * schedule forced a set only once the newest was **26 hours** old, so the
+   * measured worst window on a firm's box was 26.1 hours of work that a
+   * restore could not get back.
+   *
+   * Hourly is affordable because the thing being copied is small and the
+   * measurement says so, rather than because it feels safer. On the firm's box
+   * the database is 13 MB, a compressed dump is **142 KB**, and taking one
+   * costs **156 ms**. Twenty-four a day is 3.4 MB — less than one Postgres WAL
+   * segment, which is the alternative this replaced. See
+   * `docs/spec/point-in-time-recovery.md` in the application repository.
+   *
+   * The floor is five minutes, and it is a floor rather than a suggestion: a
+   * dump holds no lock a caller notices, but a tick that has not finished
+   * before the next one starts is a queue, not a schedule.
+   */
+  backupIntervalMinutes: z.number().int().min(5).max(1440).default(60),
+  /**
+   * The hour, read in `timezone`, for the one set a day that also tars every
+   * document. Two in the morning Riyadh time by default.
+   *
+   * Documents are the slow half -- 11.9 MB against the database's 142 KB, and
+   * they change rarely -- so they ride the daily set and not the hourly one.
+   * An hourly snapshot is the database alone, which is what a bad migration or
+   * a deleted case needs back.
    */
   backupHour: z.number().int().min(0).max(23).default(2),
   backupRetentionDays: z.number().int().min(1).max(3650).default(30),

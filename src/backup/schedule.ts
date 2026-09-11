@@ -24,24 +24,60 @@ export function hourIn(timezone: string, at: number): number {
   }
 }
 
+/** What the tick should take, if anything. */
+export type BackupKind = 'none' | 'database' | 'full'
+
 /**
- * Is a backup due right now?
+ * What is due right now: nothing, the database alone, or the whole set.
  *
- * Overdue — nothing on disk, or the newest set older than a day plus slack —
- * means now, whatever the hour: a box that was off at the scheduled hour
- * should not wait another night. Otherwise a set is taken when the clock is
- * inside the backup hour and the newest set is old enough that this is not
- * the same night's run seen twice.
+ * This used to answer yes or no, and the yes was rarer than it looked. It
+ * forced a set only once the newest was older than **26 hours**, otherwise
+ * waiting for the backup hour *and* twenty hours of age. On a firm's box that
+ * showed up exactly as written: eighteen sets over nine days, and a widest
+ * window with no backup of 26.1 hours. A day's filings, hearing notes and
+ * correspondence, re-entered from memory if anyone remembers.
+ *
+ * Now the database is snapshotted on an interval -- hourly by default, and
+ * cheap enough to be: 142 KB and 156 ms on that same box. Documents are the
+ * slow half and change rarely, so the full set, with its tar of every
+ * document, still runs once a day at `backupHour`.
+ *
+ * Same inputs as before: what is on disk and what time it is. Nothing derives
+ * from process uptime, because a box updated daily used to take no scheduled
+ * backup at all.
  */
 export function backupDue(input: {
   readonly newestAt: number | undefined
+  readonly newestFullAt: number | undefined
   readonly now: number
   readonly backupHour: number
+  readonly intervalMinutes: number
   readonly timezone: string
-}): boolean {
-  const { newestAt, now, backupHour, timezone } = input
-  if (newestAt === undefined) return true
-  const age = now - newestAt
-  if (age > 26 * HOUR_MS) return true
-  return hourIn(timezone, now) === backupHour && age > 20 * HOUR_MS
+}): BackupKind {
+  const { newestAt, newestFullAt, now, backupHour, intervalMinutes, timezone } = input
+
+  /*
+   * Belt and braces against the failure that stopped a firm's backups.
+   *
+   * `newestBackupAt` no longer returns NaN, but this predicate is the thing
+   * that decides whether a database gets copied, and a number it cannot reason
+   * about must mean "back up", never "do nothing". Every comparison below is
+   * false against NaN, so without this line an unusable input reads exactly
+   * like "a backup was taken a moment ago".
+   */
+  if (newestAt !== undefined && !Number.isFinite(newestAt)) return 'full'
+
+  /*
+   * The daily full set wins when it is due, because it is also a database
+   * snapshot -- taking both in the same tick would store the database twice.
+   */
+  const fullAge = newestFullAt === undefined ? Number.POSITIVE_INFINITY : now - newestFullAt
+  const inBackupHour = hourIn(timezone, now) === backupHour
+  // Twenty hours so a second tick inside the same hour is not a second set;
+  // twenty-six so a box that was off at the hour does not wait another night.
+  if (fullAge > 26 * HOUR_MS || (inBackupHour && fullAge > 20 * HOUR_MS)) return 'full'
+
+  if (newestAt === undefined) return 'database'
+  // `>=` and not `>`: a tick landing exactly on the interval is on time.
+  return now - newestAt >= intervalMinutes * 60 * 1000 ? 'database' : 'none'
 }
