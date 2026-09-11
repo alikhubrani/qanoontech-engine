@@ -9,6 +9,7 @@ export { licenceStatus, installLicence, readHeartbeat, readLicenceToken } from '
 export type { LicenceStanding, LicenceStatus } from './state.js'
 export { performHeartbeat } from './heartbeat.js'
 export { enforceStop, enforceClear, isEnforced, enforcementTargets } from './enforce.js'
+export { LICENCE_ENFORCED, LICENCE_DISABLED_NOTE } from './switch.js'
 export { observedNow, clockRolledBack } from './clock.js'
 
 /**

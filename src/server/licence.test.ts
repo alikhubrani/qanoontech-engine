@@ -143,7 +143,10 @@ describe('the tick', () => {
     freshHeartbeat()
 
     const audit = new AuditLog(dir)
-    await licenceTick({ dir, auth: new AuthStore(dir), audit, guard: { allowedHosts: [] }, engineVersion: 'test' })
+    // Enforcement is switched off by default (licence/switch.ts); these tests
+    // drive it on purpose, because the machinery has to still work the day it
+    // is switched back on.
+    await licenceTick({ dir, auth: new AuthStore(dir), audit, guard: { allowedHosts: [] }, engineVersion: 'test' }, true)
 
     expect(isEnforced(dir)).toBe(true)
     const stopped = vi.mocked(docker.stop).mock.calls[0]?.[0]
@@ -166,15 +169,70 @@ describe('the tick', () => {
     )
     freshHeartbeat()
     const ctx = { dir, auth: new AuthStore(dir), audit: new AuditLog(dir), guard: { allowedHosts: [] }, engineVersion: 'test' }
-    await licenceTick(ctx)
-    await licenceTick(ctx)
+    await licenceTick(ctx, true)
+    await licenceTick(ctx, true)
     expect(vi.mocked(docker.stop)).toHaveBeenCalledTimes(1)
   })
 
   it('does nothing at all without a licence', async () => {
-    await licenceTick({ dir, auth: new AuthStore(dir), audit: new AuditLog(dir), guard: { allowedHosts: [] }, engineVersion: 'test' })
+    await licenceTick({ dir, auth: new AuthStore(dir), audit: new AuditLog(dir), guard: { allowedHosts: [] }, engineVersion: 'test' }, true)
     expect(isEnforced(dir)).toBe(false)
     expect(vi.mocked(docker.stop)).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Licensing is switched off -- `LICENCE_ENFORCED` in licence/switch.ts.
+ *
+ * The tests above pass `true` to exercise the enforcement machinery, which has
+ * to keep working for the day it is switched back on. These pass nothing, so
+ * they read the switch exactly as production does -- which means they start
+ * failing when it is turned on again, which is the right way round for a
+ * temporary state to behave.
+ */
+describe('with licensing switched off', () => {
+  it('does not stop a deployment whose grace has run out', async () => {
+    installLicence(
+      await signLicence(
+        claims({
+          issuedAt: new Date(Date.now() - 100 * DAY).toISOString(),
+          expiresAt: new Date(Date.now() - 31 * DAY).toISOString(),
+        }),
+        privateKey,
+      ),
+      dir,
+    )
+    freshHeartbeat()
+    const ctx = { dir, auth: new AuthStore(dir), audit: new AuditLog(dir), guard: { allowedHosts: [] }, engineVersion: 'test' }
+
+    await licenceTick(ctx)
+
+    expect(isEnforced(dir)).toBe(false)
+    expect(vi.mocked(docker.stop)).not.toHaveBeenCalled()
+  })
+
+  it('starts a deployment that was already stopped before the switch', async () => {
+    installLicence(
+      await signLicence(
+        claims({
+          issuedAt: new Date(Date.now() - 100 * DAY).toISOString(),
+          expiresAt: new Date(Date.now() - 31 * DAY).toISOString(),
+        }),
+        privateKey,
+      ),
+      dir,
+    )
+    freshHeartbeat()
+    const ctx = { dir, auth: new AuthStore(dir), audit: new AuditLog(dir), guard: { allowedHosts: [] }, engineVersion: 'test' }
+
+    await licenceTick(ctx, true)
+    expect(isEnforced(dir)).toBe(true)
+
+    // A switch that only declined to cause new harm would leave a box stopped
+    // before it was flipped stopped forever, with nothing left to start it.
+    await licenceTick(ctx)
+    expect(isEnforced(dir)).toBe(false)
+    expect(vi.mocked(docker.start)).toHaveBeenCalled()
   })
 })
 
@@ -192,7 +250,7 @@ describe('recovery', () => {
     )
     freshHeartbeat()
     const ctx = { dir, auth: new AuthStore(dir), audit: new AuditLog(dir), guard: { allowedHosts: [] }, engineVersion: 'test' }
-    await licenceTick(ctx)
+    await licenceTick(ctx, true)
     expect(isEnforced(dir)).toBe(true)
 
     const cookie = await signIn()

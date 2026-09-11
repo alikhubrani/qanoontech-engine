@@ -20,7 +20,7 @@ export const app = defineModule({
   requires: ['postgres'],
   config: z.void(),
   secrets: [],
-  volumes: ['uploads_data', 'logs_data'],
+  volumes: ['uploads_data', 'logs_data', 'document_fonts'],
   render: (ctx) => {
     const { settings } = ctx
     const dbPassword = ctx.secret('DB_PASSWORD')
@@ -63,6 +63,12 @@ export const app = defineModule({
       volumes: [
         { volume: 'uploads_data', path: '/app/uploads' },
         { volume: 'logs_data', path: '/app/logs' },
+        /*
+         * Fonts the firm uploads, written here and read by the renderer.
+         * Writable on this side and read-only on Gotenberg's, because one
+         * writer is what keeps "which process put this face here" answerable.
+         */
+        { volume: 'document_fonts', path: '/app/document-fonts' },
       ],
       healthcheck: {
         test: [

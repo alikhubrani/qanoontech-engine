@@ -56,11 +56,42 @@ describe('render', () => {
   it('deploys gotenberg as a required service with no published port', () => {
     const doc = document()
     const g = doc.services.gotenberg
-    expect(g.image).toBe('gotenberg/gotenberg:8')
     // Internal only — the app reaches it by name; nothing is exposed.
     expect(g.ports).toBeUndefined()
     expect(g.networks).toEqual(['internal'])
     expect(g.healthcheck.test).toContain('http://localhost:3000/health')
+  })
+
+  /*
+   * The pin is a security floor, so the test checks the floor rather than a
+   * string: CVE-2026-55229 let a crafted DOCX make LibreOffice fetch external
+   * resources, and it is fixed in 8.34.0. Asserting the exact tag would fail on
+   * every legitimate bump and say nothing about the thing that matters.
+   */
+  it('pins gotenberg at or above the release that fixed CVE-2026-55229', () => {
+    const tag = document().services.gotenberg.image.split(':')[1]
+    expect(tag).not.toBe('8')
+    const [major, minor = '0'] = tag.split('.')
+    expect(Number(major)).toBeGreaterThanOrEqual(8)
+    if (Number(major) === 8) expect(Number(minor)).toBeGreaterThanOrEqual(34)
+  })
+
+  it('refuses LibreOffice outbound fetches in both directions', () => {
+    const command = document().services.gotenberg.command as string[]
+    // Private: SSRF into the firm's own network. Public: their documents
+    // leaving it. A firm's box is both "accepts untrusted documents" and
+    // "data-governed", so neither is optional.
+    expect(command).toContain('--libreoffice-deny-private-ips')
+    expect(command).toContain('--libreoffice-deny-public-ips')
+  })
+
+  it('shares the firm font volume, writable by the app and read-only to the renderer', () => {
+    const doc = document()
+    expect(doc.volumes).toHaveProperty('document_fonts')
+    expect(doc.services.gotenberg.volumes).toContain(
+      'document_fonts:/usr/share/fonts/qanoontech:ro'
+    )
+    expect(doc.services.app.volumes).toContain('document_fonts:/app/document-fonts')
   })
 
   it('tells the application where to render PDFs', () => {
@@ -127,7 +158,12 @@ describe('render', () => {
 
   it('declares every volume a rendered module asked for, once', () => {
     const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
-    expect(Object.keys(doc.volumes).sort()).toEqual(['logs_data', 'postgres_data', 'uploads_data'])
+    expect(Object.keys(doc.volumes).sort()).toEqual([
+      'document_fonts',
+      'logs_data',
+      'postgres_data',
+      'uploads_data',
+    ])
   })
 
   it('mounts the documents volume read-only wherever it is not the application', () => {

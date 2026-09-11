@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import {
   currentLicence,
+  enforceClear,
   enforceStop,
   isEnforced,
+  LICENCE_ENFORCED,
   licencePublicKey,
   performHeartbeat,
   readHeartbeat,
@@ -20,7 +22,33 @@ import type { ServerContext } from './context.js'
 const TICK_MS = 15 * 60 * 1000
 const HOUR_MS = 60 * 60 * 1000
 
-export async function licenceTick(ctx: ServerContext): Promise<void> {
+/**
+ * `enforced` is a parameter so the enforcement path stays testable while the
+ * switch is off. Production never passes it: the default is the switch, and a
+ * second way to turn enforcement on in a real deployment is exactly what a
+ * flag like this must not have.
+ */
+export async function licenceTick(
+  ctx: ServerContext,
+  enforced: boolean = LICENCE_ENFORCED,
+): Promise<void> {
+  /*
+   * Licensing is switched off -- see licence/switch.ts.
+   *
+   * Lifting an enforcement that is already in place, rather than merely
+   * declining to add one: a box stopped before the switch was flipped would
+   * otherwise stay stopped with nothing left that could start it.
+   */
+  if (!enforced) {
+    if (isEnforced(ctx.dir)) {
+      const started = await enforceClear(ctx.dir)
+      if (started.ok) // The existing vocabulary for "enforcement lifted"; the licence routes
+      // record the same event when a good licence brings a box back.
+      ctx.audit.record('licence-cleared', { detail: started.detail })
+    }
+    return
+  }
+
   let status = await currentLicence(ctx.dir)
   if (status.standing === 'missing' || status.standing === 'invalid') return
 
