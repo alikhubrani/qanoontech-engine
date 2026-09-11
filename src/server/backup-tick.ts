@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { pendingOffsite, uploadSet } from '../backup/offsite.js'
-import { newestBackupAt, takeBackup } from '../backup/service.js'
+import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { loadState } from '../state/store.js'
 import type { ServerContext } from './context.js'
@@ -13,7 +13,13 @@ import type { ServerContext } from './context.js'
  * — a running helper container — dies with the process anyway.
  */
 
-const TICK_MS = 15 * 60 * 1000
+/*
+ * Five minutes, because the interval it serves can be five minutes. A tick
+ * coarser than the schedule turns "hourly" into "hourly, give or take a
+ * quarter of an hour", and the point of the interval is that the number means
+ * something. A tick that finds nothing due costs two `readdir`s.
+ */
+const TICK_MS = 5 * 60 * 1000
 
 let running = false
 
@@ -22,15 +28,17 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
   const state = loadState(ctx.dir)
   const due = backupDue({
     newestAt: newestBackupAt(ctx.dir),
+    newestFullAt: newestFullBackupAt(ctx.dir),
     now: Date.now(),
     backupHour: state.settings.backupHour,
+    intervalMinutes: state.settings.backupIntervalMinutes,
     timezone: state.settings.timezone,
   })
 
   running = true
   try {
-    if (due) {
-      const outcome = await takeBackup('scheduled', ctx.dir)
+    if (due !== 'none') {
+      const outcome = await takeBackup('scheduled', ctx.dir, due)
       ctx.audit.record(outcome.ok ? 'backup-taken' : 'backup-failed', { detail: outcome.detail })
     }
 

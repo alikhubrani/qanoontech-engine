@@ -69,6 +69,19 @@ export function newestBackupAt(dir = stateDir()): number | undefined {
   return newest ? Date.parse(newest.takenAt) : undefined
 }
 
+/**
+ * The newest set that also carries the documents.
+ *
+ * The daily set and the hourly one are both backups, so "when did we last back
+ * up" is two questions now. Answering only the first would let a run of hourly
+ * snapshots hold the daily one off indefinitely, and the documents would stop
+ * being copied on a box that looked like it was backing up every hour.
+ */
+export function newestFullBackupAt(dir = stateDir()): number | undefined {
+  const full = listBackups(dir).find((set) => set.includesUploads)
+  return full ? Date.parse(full.takenAt) : undefined
+}
+
 export interface BackupOutcome {
   readonly ok: boolean
   readonly id?: string
@@ -82,6 +95,13 @@ export interface BackupOutcome {
 export async function takeBackup(
   trigger: BackupManifest['trigger'],
   dir = stateDir(),
+  /*
+   * 'database' skips the documents tar. The hourly snapshot is the database
+   * alone -- 142 KB against 11.9 MB, and the documents rarely change -- so a
+   * caller that wants a cheap, frequent copy asks for one rather than paying
+   * for a tar of the archive every hour.
+   */
+  kind: 'database' | 'full' = 'full',
 ): Promise<BackupOutcome> {
   const state = loadState(dir)
   const secrets = loadSecrets(dir)
@@ -102,7 +122,8 @@ export async function takeBackup(
   }
 
   let uploadsBytes = 0
-  if (state.settings.backupIncludeUploads) {
+  const includeUploads = kind === 'full' && state.settings.backupIncludeUploads
+  if (includeUploads) {
     const archive = await docker.archiveUploads(containerPath(id, 'uploads.tar.gz'))
     if (archive.code !== 0) {
       rmSync(setDir, { recursive: true, force: true })
@@ -115,7 +136,7 @@ export async function takeBackup(
     takenAt: new Date().toISOString(),
     trigger,
     appVersion: state.version,
-    includesUploads: state.settings.backupIncludeUploads,
+    includesUploads: includeUploads,
     databaseBytes: sizeOf(join(setDir, 'database.sql.gz')),
     uploadsBytes,
   }
@@ -125,20 +146,69 @@ export async function takeBackup(
   return { ok: true, id, detail: `Backup ${id} taken and verified.` }
 }
 
+/** Sets are dense near today and sparse behind it. */
+const DENSE_HOURS = 48
+const MONTHLY_MONTHS = 12
+
+/** `2026-09-11`, `2026-09`, in the deployment's own reckoning (UTC ids). */
+const dayOf = (at: number): string => new Date(at).toISOString().slice(0, 10)
+const monthOf = (at: number): string => new Date(at).toISOString().slice(0, 7)
+
 /**
- * Retention: sets older than the configured days go, except that the newest
- * three stay whatever their age — a box that was off for two months should
- * not wake up, prune everything, and then fail its next dump with no set
+ * Which sets survive, and it is a shape rather than a cutoff.
+ *
+ * A flat "older than N days" was right when a set was taken once a night. With
+ * an hourly snapshot it would hold 720 of them for a month — every one a
+ * directory, and every one an upload to the firm's Drive — to answer a question
+ * nobody asks about 3am six days ago.
+ *
+ * So: everything for two days, then one a day, then one a month. On the firm's
+ * measured numbers that steadies at about ninety sets and thirteen megabytes,
+ * while making "restore to an hour ago" and "what did this look like in March"
+ * both true. The daily and monthly keepers are the **oldest** set in their
+ * period, not the newest, because the useful copy of a day is the one taken
+ * before that day's work rather than after it.
+ *
+ * The newest three stay whatever their age — a box that was off for two months
+ * should not wake up, prune everything, and then fail its next dump with no set
  * left at all. Unfinished sets (no manifest) are swept here too.
  */
+export function keptBackupIds(sets: readonly BackupSet[], now: number, retentionDays: number): Set<string> {
+  const keep = new Set<string>()
+  // Newest first, as `listBackups` returns them.
+  for (const set of sets.slice(0, 3)) keep.add(set.id)
+
+  const dense = now - DENSE_HOURS * 60 * 60 * 1000
+  const daily = now - retentionDays * 24 * 60 * 60 * 1000
+  const monthly = now - MONTHLY_MONTHS * 31 * 24 * 60 * 60 * 1000
+  const dayKeeper = new Map<string, string>()
+  const monthKeeper = new Map<string, string>()
+
+  for (const set of sets) {
+    const at = Date.parse(set.takenAt)
+    if (!Number.isFinite(at)) continue
+    if (at >= dense) {
+      keep.add(set.id)
+      continue
+    }
+    // Later entries are older, so the last one written wins — the oldest in
+    // the period, which is the copy taken before that period's work.
+    if (at >= daily) dayKeeper.set(dayOf(at), set.id)
+    if (at >= monthly) monthKeeper.set(monthOf(at), set.id)
+  }
+  for (const id of dayKeeper.values()) keep.add(id)
+  for (const id of monthKeeper.values()) keep.add(id)
+  return keep
+}
+
 export function pruneBackups(dir = stateDir()): string[] {
   const state = loadState(dir)
-  const cutoff = Date.now() - state.settings.backupRetentionDays * 24 * 60 * 60 * 1000
   const removed: string[] = []
 
   const sets = listBackups(dir)
-  for (const set of sets.slice(3)) {
-    if (Date.parse(set.takenAt) < cutoff) {
+  const keep = keptBackupIds(sets, Date.now(), state.settings.backupRetentionDays)
+  for (const set of sets) {
+    if (!keep.has(set.id)) {
       rmSync(join(backupsRoot(dir), set.id), { recursive: true, force: true })
       removed.push(set.id)
     }
