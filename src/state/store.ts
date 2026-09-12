@@ -98,6 +98,37 @@ const settingsSchema = z.object({
    * drops what it does not name -- which is what keeps a deployment that was
    * set to Drive from failing to boot on the release that removes it.
    */
+  /**
+   * Who may sign in to this panel.
+   *
+   * `password` is the original: one operator, one scrypt hash in `auth.json`.
+   * It is the default so no existing deployment changes under its firm, and it
+   * stays reachable so `auth use-password` is a real way back.
+   *
+   * `entra` hands identity to Microsoft Entra — MFA, conditional access and
+   * central revocation without building any of them, and no password stored on
+   * the box at all. It is safe to depend on an external identity provider for
+   * exactly one reason: **the CLI authenticates zero times.** `docker exec` on
+   * the box is the authentication, so the shell stays reachable when Microsoft
+   * is not. See docs/operator-sign-in.md, and the rule it rests on — no
+   * operation may be panel-only.
+   */
+  authMode: z.enum(['password', 'entra']).default('password'),
+  entraTenantId: z.string().default(''),
+  entraClientId: z.string().default(''),
+  /**
+   * The redirect URI registered with the application. Stored rather than
+   * derived from the request, because deriving it from a Host header lets
+   * whoever can set that header choose where the code is sent.
+   */
+  entraRedirectUri: z.string().default(''),
+  /**
+   * Object ids permitted to sign in. **Empty admits nobody**, never everybody:
+   * a tenant id alone would let every account in the directory in, and an
+   * unconfigured allow-list must fail closed. Object ids and not UPNs — a UPN
+   * can be renamed, and renamed onto a different person.
+   */
+  entraAllowedObjectIds: z.array(z.string()).default([]),
   backupOffsiteEnabled: z.boolean().default(false),
   /**
    * For R2: `https://<account id>.r2.cloudflarestorage.com`. Any S3-compatible

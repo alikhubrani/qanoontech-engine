@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildServer } from './index.js'
 import { AuthStore, LOCKOUT_THRESHOLD } from './auth.js'
+import { loadState, saveState } from '../state/store.js'
 
 const PASSWORD = 'a-long-operator-password'
 
@@ -331,5 +332,90 @@ describe('changing the password', () => {
       payload: { password: PASSWORD },
     })
     expect(locked.statusCode).toBe(429)
+  })
+})
+
+/**
+ * With Entra selected, the password must stop being a way in.
+ *
+ * This is the whole difference between adding a lock and moving one. A
+ * deployment that keeps the password as a quiet fallback has an unlocked door
+ * beside the new one, and the fallback is the credential nobody rotates and
+ * nobody notices leaking — it is the one being removed, kept for comfort.
+ *
+ * The way back is `auth use-password` from the CLI, which needs a shell on the
+ * box: the same access level the panel's holder effectively has anyway.
+ */
+describe('sign-in mode', () => {
+  const useEntra = () => {
+    const state = loadState(dir)
+    saveState(
+      {
+        ...state,
+        settings: {
+          ...state.settings,
+          authMode: 'entra',
+          entraTenantId: 't',
+          entraClientId: 'c',
+          entraRedirectUri: 'http://localhost:8081/api/session/entra/callback',
+          entraAllowedObjectIds: ['o'],
+        },
+      },
+      dir,
+    )
+  }
+
+  it('refuses the password once Entra is selected, even a correct one', async () => {
+    await setUp()
+    useEntra()
+    const response = await app.inject({ method: 'POST', url: '/api/session', payload: { password: PASSWORD } })
+    expect(response.statusCode).toBe(409)
+  })
+
+  it('refuses to change a password that is no longer used', async () => {
+    const cookie = await setUp()
+    useEntra()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/password',
+      headers: { cookie },
+      payload: { current: PASSWORD, next: 'another-long-password' },
+    })
+    expect(response.statusCode).toBe(409)
+  })
+
+  it('never offers first-run setup, so a stranger cannot claim the box', async () => {
+    // Setup is the one route that grants access without a credential. With
+    // Entra it must be shut whether or not a password was ever set.
+    useEntra()
+    const asked = await app.inject({ method: 'GET', url: '/api/setup' })
+    expect(asked.json().data.needed).toBe(false)
+    expect(asked.json().data.authMode).toBe('entra')
+
+    const claimed = await app.inject({ method: 'POST', url: '/api/setup', payload: { password: 'a-stranger-password' } })
+    expect(claimed.statusCode).toBe(409)
+  })
+
+  it('will not start a sign-in it cannot finish', async () => {
+    // No client secret stored: refuse here, where the reason can be read,
+    // rather than redirecting to Microsoft to fail with a page naming nothing
+    // the operator can act on.
+    useEntra()
+    const response = await app.inject({ method: 'GET', url: '/api/session/entra/start' })
+    expect(response.statusCode).toBe(409)
+    expect(String(response.json().error)).toContain('client secret')
+  })
+
+  it('refuses a callback that did not start here', async () => {
+    useEntra()
+    const response = await app.inject({ method: 'GET', url: '/api/session/entra/callback?code=x&state=y' })
+    // No flow cookie, so there is nothing to match the state against.
+    expect([400, 409]).toContain(response.statusCode)
+  })
+
+  it('leaves the password working while password mode is selected', async () => {
+    await setUp()
+    const response = await app.inject({ method: 'POST', url: '/api/session', payload: { password: PASSWORD } })
+    expect(response.statusCode).toBe(200)
   })
 })

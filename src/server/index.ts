@@ -34,11 +34,30 @@ export interface ServerOptions {
   readonly allowedHosts?: readonly string[]
   /** Directory of built UI files. Omit to serve API only. */
   readonly uiDir?: string
-  /** The periodic heartbeat-and-enforcement loop. Tests drive ticks by hand. */
   readonly logger?: boolean
 }
 
-const OPEN_ROUTES = new Set(['/api/health', '/api/setup', '/api/session'])
+/**
+ * The only routes that answer without a session.
+ *
+ * The two Entra paths belong here for the obvious reason and it is worth
+ * stating anyway: they *are* the sign-in. Leaving them behind the session check
+ * makes signing in require being signed in, which fails as a 401 on the
+ * callback — after Microsoft has authenticated the person, which is the most
+ * confusing place for it to fail.
+ *
+ * Everything here is written to give a stranger nothing: health returns an
+ * empty object, setup refuses once configured, a failed sign-in does not
+ * distinguish its reasons, and the callback refuses anything that did not
+ * start on this box.
+ */
+const OPEN_ROUTES = new Set([
+  '/api/health',
+  '/api/setup',
+  '/api/session',
+  '/api/session/entra/start',
+  '/api/session/entra/callback',
+])
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const dir = options.dir ?? stateDir()

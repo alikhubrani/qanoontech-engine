@@ -66,12 +66,24 @@ export interface AuditEntry {
   /** e.g. the service acted on. Small, structured, never free text from a request. */
   readonly detail?: string
   readonly address?: string
+  /**
+   * Who did it, when the engine knows.
+   *
+   * Every entry used to read "the operator", because one shared password could
+   * not tell anybody apart. Entra sign-in can: this carries the UPN, falling
+   * back to the immutable object id. A firm asked "who restarted the system on
+   * the 14th" can now be answered with a name rather than a shrug.
+   *
+   * Absent for a password sign-in and for anything the scheduler did on its
+   * own, which is honest — those genuinely have no person behind them.
+   */
+  readonly subject?: string
 }
 
 export class AuditLog {
   constructor(private readonly dir = stateDir()) {}
 
-  record(event: AuditEvent, fields: { detail?: string; address?: string } = {}): void {
+  record(event: AuditEvent, fields: { detail?: string; address?: string; subject?: string } = {}): void {
     const entry: AuditEntry = { at: new Date().toISOString(), event, ...fields }
     const path = join(this.dir, AUDIT_FILE)
     mkdirSync(dirname(path), { recursive: true })
