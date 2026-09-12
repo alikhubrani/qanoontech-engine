@@ -517,80 +517,87 @@ program
 // ---------------------------------------------------------------------------
 
 /**
- * Switching sign-in is a shell operation and never a panel one.
+ * Sign-in is configured from a shell and only from a shell.
  *
  * Configuring a lock from behind the door it locks is how a deployment gets
  * locked out of itself: one wrong object id typed into a web form and the form
- * is unreachable. From here the worst case is that you are already where the
- * recovery would have to happen.
+ * is unreachable. From here the worst case is that you are already standing
+ * where the recovery would have to happen.
+ *
+ * This is also the bootstrap. A fresh box has no client secret, so it has no
+ * panel — `secrets set ENTRA_CLIENT_SECRET` and `auth redirect` are what turn
+ * one on, and reaching them already requires the machine.
  */
 const auth = program.command('auth').description('Who may sign in to this panel')
 
 auth
   .command('status')
-  .description('How sign-in works on this deployment')
+  .description('Whether this deployment can be signed in to, and by whom')
   .action(async () => {
     const { loadState, loadSecrets } = await import('./state/store.js')
     const settings = loadState().settings
-    console.log(`mode           ${settings.authMode}`)
-    if (settings.authMode === 'entra') {
-      console.log(`tenant         ${settings.entraTenantId || '(not set)'}`)
-      console.log(`client         ${settings.entraClientId || '(not set)'}`)
-      console.log(`redirect       ${settings.entraRedirectUri || '(not set)'}`)
-      console.log(`secret         ${loadSecrets()['ENTRA_CLIENT_SECRET'] ? 'stored' : '(not set)'}`)
-      console.log(`allowed        ${settings.entraAllowedObjectIds.join(', ') || '(nobody)'}`)
-    }
+    const secretSet = Boolean(loadSecrets()['ENTRA_CLIENT_SECRET'])
+
+    console.log(`tenant         ${settings.entraTenantId || '(not set)'}`)
+    console.log(`client         ${settings.entraClientId || '(not set)'}`)
+    console.log(`redirect       ${settings.entraRedirectUri || '(not set)'}`)
+    console.log(`secret         ${secretSet ? 'stored' : '(not set)'}`)
+    console.log(`allowed        ${settings.entraAllowedObjectIds.join(', ') || '(nobody)'}`)
+
+    const missing: string[] = []
+    if (!settings.entraTenantId) missing.push('a tenant id')
+    if (!settings.entraClientId) missing.push('a client id')
+    if (!settings.entraRedirectUri) missing.push('a redirect URI  (auth redirect <url>)')
+    if (!secretSet) missing.push('a client secret  (secrets set ENTRA_CLIENT_SECRET)')
+    if (settings.entraAllowedObjectIds.length === 0) missing.push('somebody on the allow-list  (auth allow <objectId>)')
+
+    console.log(
+      missing.length === 0
+        ? '\nThe panel can be signed in to.'
+        : `\nThe panel cannot be signed in to yet. Missing: ${missing.join('; ')}`,
+    )
   })
 
 auth
-  .command('use-entra <tenantId> <clientId> <redirectUri>')
-  .description('Sign in with Microsoft Entra. Set ENTRA_CLIENT_SECRET first')
-  .requiredOption('--allow <objectId...>', 'object ids permitted to sign in; at least one')
-  .action(async (tenantId: string, clientId: string, redirectUri: string, options: { allow: string[] }) => {
-    const { loadState, saveState, loadSecrets } = await import('./state/store.js')
-
-    if (!loadSecrets()['ENTRA_CLIENT_SECRET']) {
-      fail('ENTRA_CLIENT_SECRET is not stored. Set it first:  secrets set ENTRA_CLIENT_SECRET')
-    }
-    /*
-     * Refused here rather than discovered at the first sign-in, when the panel
-     * is already the thing you cannot reach. An empty allow-list admits nobody,
-     * which is the right failure but a miserable way to learn.
-     */
-    const allow = options.allow.filter((id) => id.trim() !== '')
-    if (allow.length === 0) fail('At least one object id must be allowed, or nobody can sign in.')
-    if (!/^https:\/\/|^http:\/\/localhost/.test(redirectUri)) {
+  .command('redirect <url>')
+  .description('The callback URL registered with the Entra application')
+  .action(async (url: string) => {
+    const { loadState, saveState } = await import('./state/store.js')
+    // Entra refuses plain http except on localhost, so a URI it will not accept
+    // is refused here rather than at the first sign-in.
+    if (!/^https:\/\//.test(url) && !/^http:\/\/localhost(:|\/)/.test(url)) {
       fail('The redirect URI must be https, or http://localhost. Entra refuses anything else.')
     }
-
     const state = loadState()
-    saveState({
-      ...state,
-      settings: {
-        ...state.settings,
-        authMode: 'entra',
-        entraTenantId: tenantId,
-        entraClientId: clientId,
-        entraRedirectUri: redirectUri,
-        entraAllowedObjectIds: allow,
-      },
-    })
-    console.log('Sign-in is Microsoft Entra.')
-    console.log(`Allowed: ${allow.join(', ')}`)
-    console.log(`\nThe password is refused from now on. To come back:  auth use-password`)
+    saveState({ ...state, settings: { ...state.settings, entraRedirectUri: url } })
+    console.log(`Redirect URI set to ${url}`)
+    console.log('It must match one registered on the Entra application exactly.')
   })
 
 auth
-  .command('use-password')
-  .description('Go back to the operator password')
-  .action(async () => {
+  .command('allow <objectId...>')
+  .description('Replace the list of object ids permitted to sign in')
+  .action(async (objectIds: string[]) => {
     const { loadState, saveState } = await import('./state/store.js')
+    const allow = objectIds.filter((id) => id.trim() !== '')
+    // An empty list admits nobody, which is the right failure and a miserable
+    // way to learn it. Refused here, where the panel is still reachable.
+    if (allow.length === 0) fail('At least one object id, or nobody can sign in.')
     const state = loadState()
-    saveState({ ...state, settings: { ...state.settings, authMode: 'password' } })
-    console.log('Sign-in is the operator password.')
-    // The Entra settings are left in place: coming back should not mean
-    // finding three ids and a redirect URI again.
-    console.log('The Entra settings are kept, so `auth use-entra` can be undone and redone freely.')
+    saveState({ ...state, settings: { ...state.settings, entraAllowedObjectIds: allow } })
+    console.log(`Allowed: ${allow.join(', ')}`)
+  })
+
+auth
+  .command('sign-out-everyone')
+  .description('Destroy every session on this box')
+  .action(async () => {
+    const { AuthStore } = await import('./server/auth.js')
+    new AuthStore().destroyAllSessions()
+    // Entra stops new sign-ins the moment an account is disabled, but a session
+    // already issued is a cookie on somebody's laptop and Microsoft has no say
+    // in it. Revoking access means doing both; this is the half that is ours.
+    console.log('Every session is gone. Entra decides who may start a new one.')
   })
 
 // ---------------------------------------------------------------------------

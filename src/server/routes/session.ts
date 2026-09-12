@@ -27,115 +27,21 @@ export const SESSION_COOKIE = 'engine_session'
 const FLOW_COOKIE = 'engine_entra_flow'
 const FLOW_MAX_AGE_S = 10 * 60
 
-const passwordSchema = z.object({ password: z.string().min(1).max(1024) })
-const setupSchema = z.object({ password: z.string().min(12).max(1024) })
 
 /**
- * First-run setup and sign-in.
+ * Sign in, and sign out.
  *
- * These are the only routes that answer without a session, and neither says
- * anything a stranger could use: setup refuses once a password exists, and a
- * failed login does not distinguish "wrong password" from "no password yet".
+ * There is no password and no first-run setup: identity is Microsoft Entra's,
+ * and a deployment with no client secret stored has no panel until one is set
+ * from a shell. That is the intended bootstrap — the CLI is the only thing that
+ * can grant the first access, and reaching it already requires the box.
+ *
+ * These routes answer without a session because they *are* the sign-in, and
+ * none of them says anything a stranger could use: a refusal never distinguishes
+ * "not configured" from "not permitted" in a way that maps to an account, and
+ * the callback refuses anything that did not start on this box.
  */
 export function sessionRoutes(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/setup', async () => {
-    const settings = loadState(ctx.dir).settings
-    return {
-      success: true,
-      data: {
-        // With Entra there is no password to set, so setup is never "needed".
-        needed: settings.authMode === 'password' && !ctx.auth.isConfigured(),
-        authMode: settings.authMode,
-      },
-    }
-  })
-
-  app.post('/api/setup', async (request, reply) => {
-    if (loadState(ctx.dir).settings.authMode === 'entra') {
-      return refuse(reply, 409, 'This deployment signs in with Microsoft Entra.')
-    }
-    if (ctx.auth.isConfigured()) {
-      return refuse(reply, 409, 'Already set up. Sign in instead.')
-    }
-    const body = setupSchema.safeParse(request.body)
-    if (!body.success) {
-      return refuse(reply, 400, 'The password must be at least 12 characters.')
-    }
-    ctx.auth.setPassword(body.data.password)
-    ctx.audit.record('setup', { address: request.ip })
-
-    const token = ctx.auth.createSession()
-    setSessionCookie(reply, token)
-    return { success: true, data: {} }
-  })
-
-  app.post('/api/session', async (request, reply) => {
-    /*
-     * With Entra selected, the password is not a second way in.
-     *
-     * A fallback nobody uses is a fallback nobody rotates and nobody notices
-     * leaking, and leaving this open would mean Entra had added a lock beside
-     * an unlocked door rather than on it. The way back is `auth use-password`
-     * from the CLI, which needs a shell on the box — the same access level the
-     * panel's holder effectively has anyway.
-     */
-    if (loadState(ctx.dir).settings.authMode === 'entra') {
-      return refuse(reply, 409, 'This deployment signs in with Microsoft Entra.')
-    }
-
-    const body = passwordSchema.safeParse(request.body)
-    if (!body.success) return refuse(reply, 400, 'A password is required.')
-
-    const result = ctx.auth.verifyPassword(body.data.password)
-    if (!result.ok) {
-      if (result.lockedForMs !== undefined) {
-        ctx.audit.record('login-locked', { address: request.ip })
-        const minutes = Math.ceil(result.lockedForMs / 60_000)
-        return refuse(
-          reply,
-          429,
-          `Locked after repeated failures. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
-        )
-      }
-      ctx.audit.record('login-failed', { address: request.ip })
-      return refuse(reply, 401, 'That is not the password.')
-    }
-
-    ctx.audit.record('login', { address: request.ip })
-    const token = ctx.auth.createSession()
-    setSessionCookie(reply, token)
-    return { success: true, data: {} }
-  })
-
-  app.post('/api/password', async (request, reply) => {
-    if (loadState(ctx.dir).settings.authMode === 'entra') {
-      return refuse(reply, 409, 'This deployment signs in with Microsoft Entra; there is no password to change.')
-    }
-    const body = z
-      .object({ current: z.string().min(1), next: z.string().min(12).max(1024) })
-      .safeParse(request.body)
-    if (!body.success) {
-      return refuse(reply, 400, 'The new password must be at least 12 characters.')
-    }
-
-    const result = ctx.auth.changePassword(body.data.current, body.data.next)
-    if (!result.ok) {
-      if (result.lockedForMs !== undefined) {
-        ctx.audit.record('login-locked', { address: request.ip })
-        const minutes = Math.ceil(result.lockedForMs / 60_000)
-        return refuse(reply, 429, `Locked after repeated failures. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`)
-      }
-      ctx.audit.record('login-failed', { address: request.ip })
-      return refuse(reply, 401, 'That is not the current password.')
-    }
-
-    ctx.audit.record('password-changed', { address: request.ip })
-    // Every session is gone, this one included; the cookie is cleared so the
-    // client lands on sign-in rather than on a 401 it has to interpret.
-    reply.clearCookie(SESSION_COOKIE, { path: '/' })
-    return { success: true, data: {} }
-  })
-
   app.delete('/api/session', async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE]
     if (token) ctx.auth.destroySession(token)
@@ -235,8 +141,6 @@ export function sessionRoutes(app: FastifyInstance, ctx: ServerContext): void {
  */
 function entraConfig(dir: string): { ok: true; config: EntraConfig } | { ok: false; detail: string } {
   const settings = loadState(dir).settings
-  if (settings.authMode !== 'entra') return { ok: false, detail: 'This deployment signs in with a password.' }
-
   const clientSecret = loadSecrets(dir)['ENTRA_CLIENT_SECRET'] ?? ''
   const missing = [
     ['a tenant id', settings.entraTenantId],

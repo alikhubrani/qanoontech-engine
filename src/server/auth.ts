@@ -1,37 +1,38 @@
-import {
-  createHash,
-  randomBytes,
-  scryptSync,
-  timingSafeEqual,
-} from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from '../state/store.js'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 
 /**
- * One operator, one password, and everything durable.
+ * Sessions, and nothing else.
  *
- * Durability is the point, not a nicety: the engine's container is recreated
- * on every update, so an in-memory failure counter is a lockout that resets
- * whenever the attacker is patient, and an in-memory session table signs the
- * operator out every time the panel updates itself.
+ * **There is no password.** This class used to hold one — scrypt at OWASP's
+ * parameters, a durable lockout, a change-password flow — and it was the
+ * weakest thing in the system by some distance: a single static secret, shared
+ * by whoever had been told it, with no second factor, no rotation, no
+ * revocation and no way to tell two people apart, guarding a panel that can
+ * deploy, restore over a live database, and read every credential the
+ * deployment holds.
+ *
+ * Identity is Microsoft Entra's job now (`entra.ts`), which brings MFA,
+ * conditional access and central revocation without any of it being built here.
+ * What survives is the part Entra does not do: once somebody has been
+ * identified, something has to remember it for the next request. That is all
+ * this is.
+ *
+ * No password fallback was kept, deliberately. A fallback nobody uses is the
+ * credential nobody rotates and nobody notices leaking, and keeping one would
+ * have meant adding a lock beside an unlocked door rather than on it. **The way
+ * in when Entra cannot be reached is the CLI**, which authenticates zero times
+ * because `docker exec` on the box already means root-equivalent access. That
+ * makes one rule load-bearing rather than advisory: no operation may be
+ * panel-only. See `docs/operator-sign-in.md`.
+ *
+ * Durability is still the point: the engine's container is recreated on every
+ * update, and an in-memory session table would sign the operator out every time
+ * the panel updated itself.
  */
-
-// scrypt parameters per OWASP: N=2^17, r=8, p=1.
-const SCRYPT = { N: 131072, r: 8, p: 1, keyLength: 64, maxmem: 256 * 1024 * 1024 }
-
-const credentialsSchema = z.object({
-  salt: z.string().min(1),
-  hash: z.string().min(1),
-  updatedAt: z.string(),
-})
-
-const throttleSchema = z.object({
-  failures: z.number().int().min(0).default(0),
-  lockedUntil: z.number().default(0),
-})
 
 const sessionSchema = z.object({
   /** sha256 of the token. The cookie value itself is never stored. */
@@ -42,113 +43,18 @@ const sessionSchema = z.object({
 
 export type Session = z.infer<typeof sessionSchema>
 
-const CREDENTIALS_FILE = 'auth.json'
-const THROTTLE_FILE = 'throttle.json'
 const SESSIONS_FILE = 'sessions.json'
 
-/** Idle and absolute session lifetimes. An administrative console, not a mail client. */
+/**
+ * Idle and absolute session lifetimes. An administrative console, not a mail
+ * client — and with no password to fall back on, a session that has expired
+ * means a round trip to Microsoft, which is the intended cost.
+ */
 export const SESSION_IDLE_MS = 2 * 60 * 60 * 1000
 export const SESSION_ABSOLUTE_MS = 24 * 60 * 60 * 1000
 
-/** Failures tolerated before the lockout starts, per OWASP guidance. */
-export const LOCKOUT_THRESHOLD = 5
-const LOCKOUT_BASE_MS = 10 * 60 * 1000
-const LOCKOUT_MAX_MS = 6 * 60 * 60 * 1000
-
 export class AuthStore {
   constructor(private readonly dir = stateDir()) {}
-
-  // -- credentials ----------------------------------------------------------
-
-  isConfigured(): boolean {
-    return this.credentials() !== undefined
-  }
-
-  /**
-   * Set the operator password. Refuses to overwrite one that exists — changing
-   * a password requires knowing the current one, and that flow proves it
-   * before calling this with `force`.
-   */
-  setPassword(password: string, options: { force?: boolean } = {}): void {
-    if (this.isConfigured() && !options.force) {
-      throw new Error('A password is already set.')
-    }
-    const salt = randomBytes(16).toString('hex')
-    const hash = this.derive(password, salt)
-    writeJsonAtomic(join(this.dir, CREDENTIALS_FILE), {
-      salt,
-      hash,
-      updatedAt: new Date().toISOString(),
-    })
-  }
-
-  /**
-   * Check a password, counting the attempt against the throttle.
-   *
-   * The failure counter belongs to the account, not the address: this is a
-   * single-operator console behind NAT and a tunnel, where source addresses
-   * are both trivially shared and trivially rotated.
-   */
-  verifyPassword(password: string): { ok: boolean; lockedForMs?: number } {
-    const lockedForMs = this.lockedForMs()
-    if (lockedForMs > 0) return { ok: false, lockedForMs }
-
-    const credentials = this.credentials()
-    if (!credentials) return { ok: false }
-
-    const supplied = Buffer.from(this.derive(password, credentials.salt), 'hex')
-    const stored = Buffer.from(credentials.hash, 'hex')
-    const ok = supplied.length === stored.length && timingSafeEqual(supplied, stored)
-
-    if (ok) {
-      // Reset on success, per OWASP — a legitimate operator who fumbled four
-      // times is not four fifths of the way to locking themselves out forever.
-      this.writeThrottle({ failures: 0, lockedUntil: 0 })
-      return { ok: true }
-    }
-
-    const throttle = this.throttle()
-    const failures = throttle.failures + 1
-    let lockedUntil = throttle.lockedUntil
-    if (failures >= LOCKOUT_THRESHOLD) {
-      const step = Math.min(
-        LOCKOUT_BASE_MS * 2 ** (failures - LOCKOUT_THRESHOLD),
-        LOCKOUT_MAX_MS,
-      )
-      lockedUntil = Date.now() + step
-    }
-    this.writeThrottle({ failures, lockedUntil })
-    return { ok: false, ...(lockedUntil > Date.now() ? { lockedForMs: lockedUntil - Date.now() } : {}) }
-  }
-
-  lockedForMs(): number {
-    return Math.max(0, this.throttle().lockedUntil - Date.now())
-  }
-
-  /**
-   * Change the password: prove the current one, set the new one, and sign
-   * everyone out — including whoever asked. A password change that leaves
-   * old sessions alive is half a password change, and the person changing it
-   * because they suspect a leak needs the whole one.
-   *
-   * The current-password check runs through the throttle on purpose: guessing
-   * at this door counts the same as guessing at the front one.
-   */
-  changePassword(current: string, next: string): { ok: boolean; reason?: string; lockedForMs?: number } {
-    const verified = this.verifyPassword(current)
-    if (!verified.ok) {
-      return {
-        ok: false,
-        reason: 'current',
-        ...(verified.lockedForMs !== undefined ? { lockedForMs: verified.lockedForMs } : {}),
-      }
-    }
-    this.setPassword(next, { force: true })
-    this.destroyAllSessions()
-    return { ok: true }
-  }
-
-  // -- sessions -------------------------------------------------------------
 
   /** Create a session; the returned token goes in the cookie and is never stored. */
   createSession(): string {
@@ -176,6 +82,14 @@ export class AuthStore {
     this.writeSessions(this.liveSessions().filter((s) => s.tokenHash !== tokenHash))
   }
 
+  /**
+   * Sign everyone out everywhere.
+   *
+   * The engine's half of revocation. Entra can stop *new* sign-ins the moment
+   * an account is disabled, but a session already issued here is a cookie on
+   * somebody's laptop and Microsoft has no say in it — so revoking access means
+   * doing both, and this is the second half.
+   */
   destroyAllSessions(): void {
     this.writeSessions([])
   }
@@ -194,40 +108,8 @@ export class AuthStore {
   private writeSessions(sessions: Session[]): void {
     writeJsonAtomic(join(this.dir, SESSIONS_FILE), sessions)
   }
-
-  // -- internals ------------------------------------------------------------
-
-  private credentials(): z.infer<typeof credentialsSchema> | undefined {
-    const raw = readJsonFile(join(this.dir, CREDENTIALS_FILE))
-    if (raw === undefined) return undefined
-    const parsed = credentialsSchema.safeParse(raw)
-    return parsed.success ? parsed.data : undefined
-  }
-
-  private throttle(): z.infer<typeof throttleSchema> {
-    const raw = readJsonFile(join(this.dir, THROTTLE_FILE), { lenient: true })
-    const parsed = throttleSchema.safeParse(raw ?? {})
-    return parsed.success ? parsed.data : { failures: 0, lockedUntil: 0 }
-  }
-
-  private writeThrottle(value: z.infer<typeof throttleSchema>): void {
-    writeJsonAtomic(join(this.dir, THROTTLE_FILE), value)
-  }
-
-  private derive(password: string, salt: string): string {
-    return scryptSync(password, Buffer.from(salt, 'hex'), SCRYPT.keyLength, SCRYPT).toString('hex')
-  }
 }
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
-}
-
-/** Exposed for the CLI's future `passwd`; not used by routes. */
-export function readCredentialsFile(dir = stateDir()): unknown {
-  try {
-    return JSON.parse(readFileSync(join(dir, CREDENTIALS_FILE), 'utf8'))
-  } catch {
-    return undefined
-  }
 }

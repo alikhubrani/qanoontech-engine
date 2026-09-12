@@ -17,13 +17,20 @@ import { stateDir } from '../state/store.js'
 
 const AUDIT_FILE = 'audit.jsonl'
 
+/**
+ * What the engine can record.
+ *
+ * The log is append-only history and older files on real boxes contain names no
+ * longer in this union — `setup`, `password-changed` and `login-locked` were
+ * emitted while the panel had an operator password, removed on 2026-09-12. They
+ * still read back fine; they simply cannot be written again. Keeping the union
+ * to what can actually happen is what makes it useful as a list of what the
+ * engine does.
+ */
 export type AuditEvent =
-  | 'setup'
   | 'login'
   | 'login-failed'
-  | 'login-locked'
   | 'logout'
-  | 'password-changed'
   | 'service-start'
   | 'service-stop'
   | 'service-restart'

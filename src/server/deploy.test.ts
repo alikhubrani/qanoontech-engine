@@ -40,7 +40,9 @@ import {
   saveState,
   saveSecrets,
 } from '../state/store.js'
+import { AuthStore } from './auth.js'
 import { buildServer } from './index.js'
+import { SESSION_COOKIE } from './routes/session.js'
 import { JobRunner, rollbackVersion, setVersion } from './jobs.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -60,14 +62,17 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
+/**
+ * A signed-in session, without going through Entra.
+ *
+ * These tests are about what the panel does *once* somebody is in; who gets in
+ * is `entra.test.ts`. There is no password to post any more, so the session is
+ * minted the way the callback mints it — which also keeps the two concerns from
+ * leaking into each other, so a change to sign-in cannot quietly break every
+ * deploy test.
+ */
 async function signIn(): Promise<string> {
-  const response = await app.inject({
-    method: 'POST',
-    url: '/api/setup',
-    payload: { password: 'a-long-operator-password' },
-  })
-  const raw = response.headers['set-cookie']
-  return String(Array.isArray(raw) ? raw[0] : raw).split(';')[0]!
+  return `${SESSION_COOKIE}=${new AuthStore(dir).createSession()}`
 }
 
 

@@ -1,6 +1,20 @@
 # Operator sign-in: Entra instead of a password
 
-**Status: proposed, 2026-09-12. Nothing built.**
+**Status: built 2026-09-12. The password is gone entirely.**
+
+> This was written proposing Entra *beside* the operator password, with
+> `authMode` choosing between them and `auth use-password` as the way back.
+> That is not what shipped. The password was removed outright: there is no
+> `authMode`, no `auth.json`, no lockout, no first-run setup, and no fallback.
+>
+> The decision was the right one and the spec's own reasoning argued for it
+> without following it through — "a fallback nobody uses is the credential
+> nobody rotates and nobody notices leaking" is an argument for removal, not
+> for keeping one as an escape hatch. What makes it safe is unchanged and is
+> §4 below: **the CLI authenticates zero times**, so the shell is the way in
+> when Microsoft is not. That rule is now load-bearing rather than advisory.
+>
+> Sections below are left as written, with corrections marked.
 
 The engine's web panel is guarded by one operator password. This proposes
 replacing it with Microsoft Entra sign-in against a single tenant, and states
@@ -133,13 +147,23 @@ the pre-handler in `src/server/index.ts` needs no change at all.
 **The audit gains a subject.** `AuditEntry` carries `address` today. Add the
 `oid` and the UPN at sign-in so `deploy-started` names a person.
 
-**Settings** (`state/store.ts`): `authMode: 'password' | 'entra'` defaulting to
-`password` so no existing deployment changes under its firm; `entraTenantId`,
-`entraClientId`, `entraAllowedObjectIds`. Secret: `ENTRA_CLIENT_SECRET`.
+**Settings** (`state/store.ts`) — *as built:* no `authMode`, because there is
+one mode. `entraTenantId`, `entraClientId` and `entraAllowedObjectIds` ship as
+**defaults**, since every deployment of this engine is operated by the same
+person and none of the three is a secret — they identify, they do not
+authorise. `entraRedirectUri` is per deployment and has no default. The secret
+is `ENTRA_CLIENT_SECRET`, in the secret store, never a default.
 
-**Switching is a CLI operation**, deliberately: `engine auth use-entra` and
-`engine auth use-password`. Configuring the lock from behind the door it locks
-is how a deployment gets locked out of itself.
+**Configuration is a CLI operation**, deliberately: `auth status`,
+`auth redirect <url>`, `auth allow <oid...>`, `auth sign-out-everyone`.
+Configuring the lock from behind the door it locks is how a deployment gets
+locked out of itself.
+
+**This is also the bootstrap.** A fresh box has no client secret, so it has no
+panel until `secrets set ENTRA_CLIENT_SECRET` and `auth redirect` are run from a
+shell. That replaces first-run setup, and it is a better story than the one it
+replaces: `POST /api/setup` was a single route that handed a session to whoever
+reached it first, which on an unconfigured box was a race.
 
 ## 6. What the app registration needs
 
@@ -163,8 +187,8 @@ On `alikhubrani.com`'s tenant:
 On `.106`, and none of it passes on staging alone — item 5 is the one that
 matters and it is the same fresh VM as Phase 2.
 
-1. `engine auth use-entra` with tenant, client id and one allowed `oid`. Sign in
-   with that account. Land on the panel.
+1. `secrets set ENTRA_CLIENT_SECRET`, then `auth redirect <url>`. Sign in with
+   the allowed account. Land on the panel.
 2. A second account **in the same tenant** but not on the allow-list is refused.
 3. A token from a different tenant is refused.
 4. Disable the account in Entra; the next sign-in fails and the existing session
@@ -172,8 +196,9 @@ matters and it is the same fresh VM as Phase 2.
 5. **Pull the box's internet.** Confirm every operation still runs from the CLI:
    `status`, `backup now`, `backup drill`, `offsite list`, `backup restore`.
    This is the test the whole design rests on.
-6. `engine auth use-password` restores the old behaviour, proving the change is
-   not one-way.
+6. *Removed with the password.* There is no way back to a password, by design.
+   What must be proved instead is item 5: that losing the panel costs nothing
+   an operator needs.
 
 ## 8. Open questions
 

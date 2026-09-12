@@ -53,8 +53,6 @@ export interface ServerOptions {
  */
 const OPEN_ROUTES = new Set([
   '/api/health',
-  '/api/setup',
-  '/api/session',
   '/api/session/entra/start',
   '/api/session/entra/callback',
 ])

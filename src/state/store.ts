@@ -99,27 +99,34 @@ const settingsSchema = z.object({
    * set to Drive from failing to boot on the release that removes it.
    */
   /**
-   * Who may sign in to this panel.
+   * Who may sign in to this panel: Microsoft Entra, and nothing else.
    *
-   * `password` is the original: one operator, one scrypt hash in `auth.json`.
-   * It is the default so no existing deployment changes under its firm, and it
-   * stays reachable so `auth use-password` is a real way back.
+   * There is no password and no `authMode`. The operator password was a single
+   * static secret with no second factor, no rotation, no revocation and no
+   * attribution, guarding a panel that can deploy, restore over a live database
+   * and read every credential the deployment holds. Removing it rather than
+   * keeping it as a fallback is the whole point: a fallback nobody uses is the
+   * credential nobody rotates and nobody notices leaking.
    *
-   * `entra` hands identity to Microsoft Entra — MFA, conditional access and
-   * central revocation without building any of them, and no password stored on
-   * the box at all. It is safe to depend on an external identity provider for
-   * exactly one reason: **the CLI authenticates zero times.** `docker exec` on
-   * the box is the authentication, so the shell stays reachable when Microsoft
-   * is not. See docs/operator-sign-in.md, and the rule it rests on — no
-   * operation may be panel-only.
+   * The tenant, the application and the permitted account ship as defaults
+   * because every deployment of this engine is operated by the same person.
+   * None of the three is a secret — they identify, they do not authorise. The
+   * client secret is not among them and never will be: it is held in the secret
+   * store, per box, and a fresh install has no panel until one is set from a
+   * shell. That is the intended bootstrap.
+   *
+   * They are settings and not constants so that a deployment can be pointed at
+   * a different directory without a new image.
    */
-  authMode: z.enum(['password', 'entra']).default('password'),
-  entraTenantId: z.string().default(''),
-  entraClientId: z.string().default(''),
+  entraTenantId: z.string().default('e12d2506-d720-4ff4-9956-27df04e3dc33'),
+  entraClientId: z.string().default('a4049d7b-249b-4e77-856a-65bd61eab5f3'),
   /**
-   * The redirect URI registered with the application. Stored rather than
-   * derived from the request, because deriving it from a Host header lets
-   * whoever can set that header choose where the code is sent.
+   * The redirect URI registered with the application. Per deployment — the
+   * panel's own address — so it has no useful default and must be set before
+   * anyone can sign in.
+   *
+   * Stored rather than derived from the request, because deriving it from a
+   * Host header lets whoever can set that header choose where the code is sent.
    */
   entraRedirectUri: z.string().default(''),
   /**
@@ -128,7 +135,7 @@ const settingsSchema = z.object({
    * unconfigured allow-list must fail closed. Object ids and not UPNs — a UPN
    * can be renamed, and renamed onto a different person.
    */
-  entraAllowedObjectIds: z.array(z.string()).default([]),
+  entraAllowedObjectIds: z.array(z.string()).default(['59e5362f-28b1-4b04-b6aa-b125fcb3c5ea']),
   backupOffsiteEnabled: z.boolean().default(false),
   /**
    * For R2: `https://<account id>.r2.cloudflarestorage.com`. Any S3-compatible
