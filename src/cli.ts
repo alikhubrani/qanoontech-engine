@@ -580,6 +580,100 @@ recovery
   })
 
 recovery
+  .command('run')
+  .description('Bring a deployment back onto this machine from the store. For a box with nothing on it')
+  .requiredOption('--endpoint <url>', 'S3 endpoint')
+  .requiredOption('--bucket <bucket>', 'bucket name')
+  .option('--force', 'proceed even though this box already has engine state')
+  .action(async (options: { endpoint: string; bucket: string; force?: boolean }) => {
+    /*
+     * The whole point of the programme, in one command: four values and a
+     * passphrase, and a machine that has never seen this deployment becomes it.
+     *
+     * Every step here already exists and is tested on its own. What this adds
+     * is the order, and the order is the part that matters — the compose file
+     * is *rendered*, never restored, because it is an output; the database is
+     * restored before documents because a document index is read from the set
+     * and not from the database; and a drill runs at the end so recovery proves
+     * itself rather than announcing success.
+     */
+    const { applySnapshot, fetchSnapshot } = await import('./backup/snapshot.js')
+    const { fetchSet, listRemote } = await import('./backup/offsite.js')
+    const { restoreBackup } = await import('./backup/service.js')
+    const { restoreDocuments } = await import('./backup/documents.js')
+    const { runDrill } = await import('./backup/drill.js')
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+
+    const step = (n: number, what: string) => console.log(`\n[${n}/7] ${what}`)
+
+    const store = await recoveryStore(options.endpoint, options.bucket)
+    const passphrase = await ask('Recovery passphrase: ')
+    if (!passphrase) fail('A passphrase is needed; the snapshot cannot be opened without it.')
+
+    const work = mkdtempSync(join(tmpdir(), 'qt-recover-'))
+    try {
+      step(1, 'Opening the engine snapshot')
+      const got = await fetchSnapshot(store, passphrase, join(work, 'state.enc'))
+      if (!got.ok) fail(got.detail)
+      const body = got.body!
+      console.log(`      taken ${body.takenAt} by engine ${body.engineVersion}`)
+
+      step(2, 'Writing state and secrets onto this box')
+      const applied = applySnapshot(body, undefined, { force: options.force ?? false })
+      if (!applied.ok) fail(applied.detail)
+      console.log(`      ${applied.detail}`)
+
+      step(3, 'Rendering the compose file from that state')
+      // Rendered, not restored. A stored compose file would pin whatever the
+      // dead engine last wrote, against whichever engine is running now.
+      const plan = await requirePlan()
+      const path = writePlan(plan.yaml)
+      console.log(`      ${path} — ${plan.moduleIds.join(', ')}`)
+
+      step(4, 'Starting the deployment')
+      const applyResult = await docker.apply()
+      if (applyResult.code !== 0) fail(`docker compose failed: ${(applyResult.stderr || '').slice(0, 300)}`)
+      console.log('      containers up')
+
+      step(5, 'Finding the newest backup in the store')
+      const remote = await listRemote()
+      if (!remote.ok) fail(remote.detail)
+      const newest = remote.sets[0]
+      if (!newest) fail('There are no backup sets in the store; the database cannot be restored.')
+      console.log(`      ${newest.name} (${(newest.bytes / 1_048_576).toFixed(2)} MB)`)
+      const fetched = await fetchSet(newest.name)
+      if (!fetched.ok) fail(fetched.detail)
+
+      step(6, 'Restoring the database, then the documents it names')
+      const restored = await restoreBackup(newest.name)
+      for (const s of restored.steps) console.log(`      ${s.ok ? '✓' : '✗'} ${s.step} — ${s.detail}`)
+      if (!restored.ok) fail('The restore did not complete.')
+
+      /*
+       * Documents after the database and driven by the set's own index, so a
+       * recovered deployment gets the files that existed when that backup was
+       * taken rather than whatever happens to be in the bucket now.
+       */
+      const { BACKUPS_DIR } = await import('./backup/service.js')
+      const { stateDir } = await import('./state/store.js')
+      const docs = await restoreDocuments(join(stateDir(), BACKUPS_DIR, newest.name))
+      console.log(`      ${docs.detail}`)
+
+      step(7, 'Proving it: restoring that set again into a scratch database')
+      const drill = await runDrill(newest.name)
+      console.log(`      ${drill.detail}`)
+      if (!drill.ok) fail('Recovery finished but the drill did not pass. Do not trust this deployment yet.')
+
+      console.log('\nRecovered.')
+      console.log('Sign in at the panel. Set a new recovery passphrase if this one has been seen.')
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+recovery
   .command('show')
   .description('Open the snapshot and print what it holds. Never prints a secret value')
   .requiredOption('--endpoint <url>', 'S3 endpoint')
