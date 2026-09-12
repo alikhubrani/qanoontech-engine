@@ -108,15 +108,38 @@ export async function uploadSet(
 }
 
 /**
- * The newest set that has not gone out yet, if any. The tick calls this: a
- * failed or missing copy of the newest set is retried until it lands.
+ * The next set to send: the newest if it has not gone, otherwise the oldest
+ * that has not.
+ *
+ * The newest comes first because it is the one worth having — a copy of last
+ * hour beats a copy of last Tuesday, and if only one upload succeeds before the
+ * connection goes, that is the one to have spent it on.
+ *
+ * The backlog behind it used to be unreachable. This returned the newest or
+ * nothing, so a deployment that turned offsite on, or had it fail for a
+ * fortnight, uploaded only what it took from that moment and left every earlier
+ * set on the box for ever. Staging had fourteen of them: Drive had been
+ * refusing every upload since 2 September, and when it was pointed at R2
+ * instead, thirteen of those sets were still never going to be copied anywhere.
+ *
+ * Oldest-first for the backlog, so it drains in the order it accumulated and a
+ * set cannot be skipped past indefinitely. One per tick, which at five-minute
+ * ticks clears a fortnight's backlog in an afternoon without ever competing
+ * with the set that matters most.
  */
 export function pendingOffsite(dir = stateDir()): string | undefined {
   if (!loadState(dir).settings.backupOffsiteEnabled) return undefined
-  const [newest] = listBackups(dir)
-  if (!newest) return undefined
-  const record = readOffsite(newest.id, dir)
-  return record.uploadedAt ? undefined : newest.id
+  const sets = listBackups(dir)
+  if (sets.length === 0) return undefined
+
+  const unsent = (id: string): boolean => !readOffsite(id, dir).uploadedAt
+  if (unsent(sets[0]!.id)) return sets[0]!.id
+
+  // `listBackups` is newest-first, so the last unsent is the oldest.
+  for (let index = sets.length - 1; index > 0; index -= 1) {
+    if (unsent(sets[index]!.id)) return sets[index]!.id
+  }
+  return undefined
 }
 
 export interface RemoteSet {
