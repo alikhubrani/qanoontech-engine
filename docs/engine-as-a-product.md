@@ -257,9 +257,34 @@ assemble from the deployed `postgres` module, so no existing deployment changes.
 Set means use it, and `postgres` stops being required. Backup, restore, drill and
 preflight all take the URL rather than assuming a neighbour container.
 
+**Postgres 15 → 17 rides along here, and only here.** Decided 2026-09-12.
+
+Both boxes run PostgreSQL 15.19 in compose, and `postgres` is pinned to a major
+version in the catalogue with `required: true` — deliberately, because a major
+version is a data-directory format, not a tag. PG 17 refuses to start on a PG 15
+datadir, so an engine update that could move the pin would leave a firm with a
+database that does not boot.
+
+The upgrade is therefore a dump-and-restore, and **that is exactly what this
+phase already is.** Moving the database to an external server means dumping from
+the old one and restoring into the new one; provision the new one at 17 and the
+version upgrade costs nothing extra. Doing it before this phase means paying the
+same disruption twice on a live box — once to go 15→17 inside compose, once to
+go compose→external — and building an in-compose major-upgrade path that this
+phase then deletes.
+
+Nothing is forcing the clock: PG 15 is supported to November 2027.
+
+The mechanics are small at this scale. `.18`'s entire database is a 0.1 MB
+compressed dump and the drill on 2026-09-12 restored it in 1.0 seconds, so the
+migration window is seconds of downtime, not an evening. What makes it worth
+doing carefully is not the size but that it is the one operation where a bad
+backup is discovered too late — which is why `verifyDump` landed first.
+
 **Acceptance on `.106`.** Move the application's database to an external
-Postgres without reinstalling anything: set the URL, apply, sign in, and watch
-`backup drill` pass against it. Then move it back.
+Postgres **17** without reinstalling anything: set the URL, apply, sign in, and
+watch `backup drill` pass against it. Row counts must match the source. Then
+move it back to prove the path is not one-way.
 
 ### Phase 4 — The engine's own database, and two setups
 
@@ -283,6 +308,21 @@ stop reading the files. A firm must not have to do anything.
 **Acceptance on `.106`.** Set up an engine from nothing against a real external
 Postgres. Then take an existing `.106`-shaped deployment with JSON state and
 watch it migrate itself on first start, with the audit trail intact.
+
+### Phase 4a — Operator sign-in moves to Entra
+
+Specified separately in [`operator-sign-in.md`](./operator-sign-in.md); slotted
+here because it wants Phase 4's settings work already done and because it
+constrains Phase 5 rather than following it.
+
+One password with no MFA, no revocation and no attribution guards a panel that
+can deploy, restore over a live database, and read every secret in the estate.
+Entra against a single tenant fixes all four.
+
+**It is safe only because the CLI authenticates zero times** — `docker exec` is
+the authentication, so the shell stays reachable when Microsoft is not. Which
+makes one rule binding on the phase below: **no operation may be panel-only.**
+Read Phase 5 with that in hand.
 
 ### Phase 5 — The panel takes responsibility
 
@@ -352,7 +392,7 @@ be measured both ways.
    phases 1–3 and it changes Phase 5's shape, so it is worth answering before
    Phase 4.
 
-### Open defect — `"taken and verified"` verifies nothing
+### ~~Open defect~~ — fixed 2026-09-12: `"taken and verified"` now verifies
 
 Found 2026-09-12, unfixed. `takeBackup` writes this audit line after every set:
 
@@ -372,13 +412,24 @@ intact, nothing counts a row. The line is on the firm's box 27 times covering
 sets back to 3 September, and until the drill on 2026-09-12 not one of them had
 ever been restored.
 
-It is the programme's recurring failure in its purest form: a record asserting a
-safety property, written by the thing that benefits from it being believed. It
-is listed here rather than fixed in passing because there is a choice in it —
-**verify, or stop claiming to.** The cheap end is decompressing the dump and
-confirming it parses before the manifest is written; the honest minimum is
-deleting the word. A backup that lies about itself is worse than one that says
-nothing, because the lie is what stops anyone checking.
+It was the programme's recurring failure in its purest form: a record asserting
+a safety property, written by the thing that benefits from it being believed.
+
+**Fixed by `verifyDump` in `src/backup/service.ts`.** Every set is now read back
+before it is called one: the dump is stream-decompressed, which makes gzip's CRC
+and length do the work of catching a truncated or corrupt file, and the tail is
+checked for pg_dump's `-- PostgreSQL database dump complete`, which catches the
+worse case — well-formed gzip that simply stops early, restoring into a database
+quietly missing its last tables. A set that fails either check is deleted rather
+than kept, because half a dump on disk is what the retention shape counts and
+what the health check calls recent.
+
+The test fixture turned out to be the same bug in miniature. The mock wrote
+`'dump'.repeat(100)` as plain text — never gzip, no structure, no end — and it
+passed for as long as the only check was an exit status. It is now a real
+gzipped dump with the `\restrict` wrapper copied off a live 15.19 box, and the
+four ways a dump can be wrong each have a test: truncated gzip, not gzip,
+valid gzip that stops early, and empty.
 
 ---
 

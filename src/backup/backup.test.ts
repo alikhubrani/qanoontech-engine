@@ -1,7 +1,39 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * What pg_dump actually produces, shortened.
+ *
+ * This fixture used to be `'dump'.repeat(100)` written as plain text — not
+ * gzip, no structure, no end. It passed, because the only check was pg_dump's
+ * exit status. The fixture was itself the bug in miniature: a stand-in that
+ * could not be told from the real thing by anything the code did. `verifyDump`
+ * rejects it, which is the point of `verifyDump`.
+ *
+ * The `\\restrict` / `\\unrestrict` wrapper and the position of the completion
+ * marker are copied from a real 15.19 dump taken off the staging box.
+ */
+const SAMPLE_DUMP = [
+  '--',
+  '-- PostgreSQL database dump',
+  '--',
+  '',
+  '\\restrict SAMPLEtoken0000000000000000',
+  '',
+  '-- Dumped from database version 15.19',
+  '',
+  'CREATE TABLE public.cases (id uuid NOT NULL);',
+  '',
+  '--',
+  '-- PostgreSQL database dump complete',
+  '--',
+  '',
+  '\\unrestrict SAMPLEtoken0000000000000000',
+  '',
+].join('\n')
 
 vi.mock('../docker/index.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../docker/index.js')>()
@@ -10,7 +42,7 @@ vi.mock('../docker/index.js', async (importOriginal) => {
     ...original,
     // The helpers "write" their outputs so sizes and manifests are real.
     dumpDatabase: vi.fn(async (_target: unknown, outPath: string) => {
-      writeFileSync(containerToHost(process.env['TEST_DIR']!, outPath), 'dump'.repeat(100))
+      writeFileSync(containerToHost(process.env['TEST_DIR']!, outPath), gzipSync(SAMPLE_DUMP))
       return { code: 0, stdout: '', stderr: '' }
     }),
     archiveUploads: vi.fn(async (outPath: string) => {
@@ -36,6 +68,7 @@ import {
   pruneBackups,
   restoreBackup,
   takeBackup,
+  verifyDump,
 } from './service.js'
 
 const HOUR = 60 * 60 * 1000
@@ -364,5 +397,79 @@ describe('redaction', () => {
       const value = generate()
       expect(scrubValues(`${name}=${value}`, { [name]: value })).not.toContain(value)
     }
+  })
+})
+
+/**
+ * The four ways a dump is not a dump.
+ *
+ * Each of these passed the old check, because the old check was pg_dump's exit
+ * status and pg_dump had already exited by the time any of them happened. A
+ * full disk truncates the file after the process is gone; a killed container
+ * leaves a valid-looking prefix; a pipe closed at the wrong moment produces
+ * well-formed gzip that simply stops. None of them announces itself, and all of
+ * them restore into a database quietly missing tables — which is worse than a
+ * backup that obviously failed, because the failure is discovered on the day it
+ * is needed.
+ */
+describe('verifying a dump is a dump', () => {
+  const write = (name: string, bytes: Uint8Array): string => {
+    const path = join(dir, name)
+    writeFileSync(path, bytes)
+    return path
+  }
+
+  it('accepts a complete dump', async () => {
+    const result = await verifyDump(write('good.sql.gz', gzipSync(SAMPLE_DUMP)))
+    expect(result.ok).toBe(true)
+  })
+
+  it('refuses a truncated gzip — the full-disk case', async () => {
+    const whole = gzipSync(SAMPLE_DUMP)
+    // Cut the trailing CRC and length, which is what a short write costs.
+    const result = await verifyDump(write('cut.sql.gz', whole.subarray(0, whole.length - 8)))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.detail).toContain('did not read back')
+  })
+
+  it('refuses bytes that are not gzip at all', async () => {
+    const result = await verifyDump(write('plain.sql.gz', Buffer.from('dump'.repeat(100))))
+    expect(result.ok).toBe(false)
+  })
+
+  it('refuses valid gzip that stops before the end — the killed-process case', async () => {
+    // Well-formed gzip of a dump missing its last tables and its marker.
+    const short = SAMPLE_DUMP.slice(0, SAMPLE_DUMP.indexOf('-- PostgreSQL database dump complete'))
+    const result = await verifyDump(write('short.sql.gz', gzipSync(short)))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.detail).toContain('completion marker')
+  })
+
+  it('refuses an empty dump', async () => {
+    const result = await verifyDump(write('empty.sql.gz', gzipSync('')))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.detail).toContain('empty')
+  })
+
+  /*
+   * The marker sits near the end but not at it -- a real dump closes with an
+   * `\unrestrict` line after it. A check that only read the final bytes would
+   * reject every genuine dump, so the window has to be a window.
+   */
+  it('finds the marker even though it is not the last line', async () => {
+    expect(SAMPLE_DUMP.trimEnd().endsWith('-- PostgreSQL database dump complete')).toBe(false)
+    const result = await verifyDump(write('real-shape.sql.gz', gzipSync(SAMPLE_DUMP)))
+    expect(result.ok).toBe(true)
+  })
+
+  it('reads a dump larger than the tail window', async () => {
+    const padding = 'INSERT INTO public.cases VALUES (gen_random_uuid());\n'.repeat(4000)
+    const big = SAMPLE_DUMP.replace('CREATE TABLE public.cases (id uuid NOT NULL);', padding)
+    expect(big.length).toBeGreaterThan(64 * 1024)
+    const result = await verifyDump(write('big.sql.gz', gzipSync(big)))
+    expect(result.ok).toBe(true)
   })
 })

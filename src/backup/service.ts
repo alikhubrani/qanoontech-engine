@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { createGunzip } from 'node:zlib'
+import { pipeline } from 'node:stream/promises'
 import * as docker from '../docker/index.js'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 import { loadSecrets, loadState, stateDir } from '../state/store.js'
@@ -8,7 +10,8 @@ import { loadSecrets, loadState, stateDir } from '../state/store.js'
  * Backups: a nightly set on the engine's own volume, and the way back.
  *
  * A set is a directory named by its moment — `2026-09-02T19-30-00Z` — holding
- * a verified `database.sql.gz`, optionally `uploads.tar.gz`, and a manifest.
+ * a verified `database.sql.gz` — verified meaning `verifyDump` read it, not
+ * meaning pg_dump exited zero — optionally `uploads.tar.gz`, and a manifest.
  * The name is the identity: it sorts, it says when, and it is the one thing a
  * firm recovering from the offsite copy must not rename.
  *
@@ -162,6 +165,18 @@ export async function takeBackup(
     return { ok: false, detail: `Database dump failed: ${(dump.stderr || 'unknown').trim()}` }
   }
 
+  /*
+   * Exit status is not evidence, so read it back before calling it a backup.
+   * A set that fails here is discarded exactly as a failed dump is: half a
+   * dump kept on disk is worse than none, because it is what the retention
+   * shape counts and what the health check calls recent.
+   */
+  const verified = await verifyDump(join(setDir, 'database.sql.gz'))
+  if (!verified.ok) {
+    rmSync(setDir, { recursive: true, force: true })
+    return { ok: false, detail: `Backup discarded: ${verified.detail}` }
+  }
+
   let uploadsBytes = 0
   const includeUploads = kind === 'full' && state.settings.backupIncludeUploads
   if (includeUploads) {
@@ -198,6 +213,71 @@ export async function takeBackup(
 
   pruneBackups(dir)
   return { ok: true, id, detail: `Backup ${id} taken and verified.` }
+}
+
+/**
+ * What pg_dump writes once it has written everything else.
+ *
+ * Present in every version this has been run against, and the last content in
+ * the file apart from the `\unrestrict` line PostgreSQL 15 wraps the dump in.
+ */
+const DUMP_COMPLETE = '-- PostgreSQL database dump complete'
+
+/** Enough of the end to hold the marker and the unrestrict line after it. */
+const TAIL_BYTES = 8192
+
+/**
+ * Read the dump back and decide whether it is one.
+ *
+ * **This is what the word "verified" used to mean and did not.** Every set was
+ * recorded as `taken and verified` on the strength of pg_dump's exit status
+ * alone — nothing read the file back, nothing checked the gzip, nothing looked
+ * for an end. A firm's box carried 27 such lines covering three weeks, and the
+ * first time any of those sets was restored was a drill run by hand on
+ * 2026-09-12. That is the programme's recurring failure in miniature: a record
+ * asserting a safety property, written by the thing that benefits from it being
+ * believed.
+ *
+ * Two questions, and they fail differently:
+ *
+ *  - **Are the bytes intact?** Decompressing answers it. gzip carries a CRC and
+ *    an uncompressed length, and zlib raises on either mismatch — so a dump
+ *    truncated by a full disk, a killed container or a half-written volume
+ *    cannot pass. Exit status cannot see any of that: pg_dump had already
+ *    exited 0 when the write failed downstream of it.
+ *  - **Did pg_dump reach the end?** The marker answers it. A stream can be
+ *    valid gzip and still stop early — a pipe closed cleanly at the wrong
+ *    moment — and a dump missing its last tables restores without complaint
+ *    into a database quietly missing them, which is the worst failure of the
+ *    two because nothing announces it.
+ *
+ * Streamed, with only a tail window held, because this runs on every backup on
+ * a small box and the file is the whole database.
+ */
+export async function verifyDump(path: string): Promise<{ ok: true } | { ok: false; detail: string }> {
+  /* Held as a plain byte view so the tail window is not retyped each concat. */
+  let tail: Uint8Array = new Uint8Array(0)
+  let bytes = 0
+
+  try {
+    await pipeline(createReadStream(path), createGunzip(), async function (source) {
+      for await (const chunk of source) {
+        const buffer = chunk as Uint8Array
+        bytes += buffer.length
+        tail = tail.length === 0 ? buffer : Buffer.concat([tail, buffer])
+        if (tail.length > TAIL_BYTES) tail = tail.subarray(tail.length - TAIL_BYTES)
+      }
+    })
+  } catch (error) {
+    // A CRC failure, an unexpected end of file, or not gzip at all.
+    return { ok: false, detail: `The dump did not read back: ${(error as Error).message.slice(0, 200)}` }
+  }
+
+  if (bytes === 0) return { ok: false, detail: 'The dump is empty.' }
+  if (!Buffer.from(tail).toString('utf8').includes(DUMP_COMPLETE)) {
+    return { ok: false, detail: 'The dump has no completion marker; pg_dump did not reach the end.' }
+  }
+  return { ok: true }
 }
 
 /** Sets are dense near today and sparse behind it. */
