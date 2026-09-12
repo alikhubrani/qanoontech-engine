@@ -93,6 +93,18 @@ export async function uploadSet(
 
     for (const name of readdirSync(setDir)) {
       if (name === OFFSITE_FILE) continue
+      /*
+       * The documents tar stays on the box.
+       *
+       * It is the whole uploads volume in one file, and sending it would put
+       * 11.9 MB of documents in the bucket beside the same documents already
+       * there one-by-one -- the duplication this phase exists to end, with the
+       * extra insult of paying for it twice a day. Offsite gets the
+       * incrementals under `documents/`; the tar is a local convenience while
+       * it lasts, and `documents.index.json` is what a fetched set restores
+       * from.
+       */
+      if (name === 'uploads.tar.gz') continue
       const local = join(setDir, name)
       const { statSync } = await import('node:fs')
       const size = statSync(local).size

@@ -201,6 +201,96 @@ export function readDocumentIndex(setDir: string): DocumentFile[] {
   }
 }
 
+export interface RestoreOutcome {
+  readonly ok: boolean
+  readonly fetched: number
+  readonly alreadyThere: number
+  readonly detail: string
+}
+
+/**
+ * Put a set's documents back, from the bucket.
+ *
+ * The counterpart to the tar, and the only way back for a set that was fetched
+ * from offsite — a fetched set has no tar, deliberately, because the tar is the
+ * whole volume in one file and sending it would duplicate every document
+ * already there one-by-one.
+ *
+ * It restores **what the index names**, not everything in the bucket. Those are
+ * different: the bucket holds every document ever written, and the index holds
+ * the ones that existed when this set was taken. Restoring the difference would
+ * pair an old database with newer files that no restored row references —
+ * recognisably not the system being recovered.
+ *
+ * Files already on the volume at the right size are left alone. That makes this
+ * safe to re-run, and makes a half-finished restore resumable rather than a
+ * reason to start again.
+ */
+export async function restoreDocuments(
+  setDir: string,
+  dir = stateDir(),
+  store?: OffsiteStore,
+): Promise<RestoreOutcome> {
+  const wanted = readDocumentIndex(setDir)
+  if (wanted.length === 0) {
+    return { ok: true, fetched: 0, alreadyThere: 0, detail: 'This set carries no document index.' }
+  }
+
+  const target = store ?? offsiteStore(dir).store
+  if (!target) {
+    return {
+      ok: false, fetched: 0, alreadyThere: 0,
+      detail: `This set names ${wanted.length} document(s), and offsite is not configured to fetch them from.`,
+    }
+  }
+
+  let present = new Map<string, number>()
+  try {
+    present = new Map((await listDocuments()).map((file) => [file.path, file.size]))
+  } catch {
+    /* An empty volume is the normal case on a rebuilt machine. */
+  }
+
+  const missing = wanted.filter((file) => present.get(file.path) !== file.size)
+  if (missing.length === 0) {
+    return {
+      ok: true, fetched: 0, alreadyThere: wanted.length,
+      detail: `All ${wanted.length} document(s) are already in place.`,
+    }
+  }
+
+  const stageName = 'documents.restore'
+  const stageDir = join(dir, stageName)
+  rmSync(stageDir, { recursive: true, force: true })
+  mkdirSync(stageDir, { recursive: true })
+
+  try {
+    for (const file of missing) {
+      await target.get(`${DOCUMENTS_PREFIX}${file.path}`, join(stageDir, file.path))
+    }
+    const back = await docker.unstageUploads(`/state/${stageName}`)
+    if (back.code !== 0) {
+      return {
+        ok: false, fetched: 0, alreadyThere: wanted.length - missing.length,
+        detail: `Could not write documents back: ${(back.stderr || '').trim().slice(0, 200)}`,
+      }
+    }
+    return {
+      ok: true,
+      fetched: missing.length,
+      alreadyThere: wanted.length - missing.length,
+      detail: `${missing.length} document(s) restored from ${target.label}; ${wanted.length - missing.length} already in place.`,
+    }
+  } catch (error) {
+    return {
+      ok: false, fetched: 0, alreadyThere: wanted.length - missing.length,
+      detail: (error as Error).message.slice(0, 200),
+    }
+  } finally {
+    rmSync(stageDir, { recursive: true, force: true })
+  }
+}
+
 /** Enough to be useful in a bucket browser; never trusted for anything. */
 function contentTypeFor(path: string): string {
   const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
