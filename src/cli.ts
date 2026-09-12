@@ -634,6 +634,29 @@ recovery
       console.log(`      ${path} — ${plan.moduleIds.join(', ')}`)
 
       step(4, 'Starting the deployment')
+      /*
+       * Log the daemon in first, using the credentials that arrived in the
+       * snapshot a moment ago.
+       *
+       * `jobs.ts` already carries this lesson in a comment — compose's registry
+       * checks use the daemon's *stored* login, so `apply` fails `unauthorized`
+       * even when every image is present — and this path reintroduced it by
+       * calling `docker.apply()` directly. It only surfaced on a box whose
+       * images had been deleted, which is precisely the box recovery runs on
+       * and precisely why the rehearsal was worth doing.
+       */
+      const { storedRegistryAuth, REGISTRY } = await import('./registry.js')
+      const auth = storedRegistryAuth()
+      if (auth) {
+        const loggedIn = await docker.login(REGISTRY, auth.username, auth.token)
+        if (loggedIn.code !== 0) {
+          fail(`Could not sign in to ${REGISTRY}: ${(loggedIn.stderr || '').slice(0, 200)}`)
+        }
+        console.log(`      signed in to ${REGISTRY} as ${auth.username}`)
+      } else {
+        console.log('      no registry credentials in the snapshot; public images only')
+      }
+
       const applyResult = await docker.apply()
       if (applyResult.code !== 0) fail(`docker compose failed: ${(applyResult.stderr || '').slice(0, 300)}`)
       console.log('      containers up')
