@@ -48,6 +48,8 @@ export type AuditEvent =
    * record of "nothing was taken and that is wrong" is the line that would have
    * shown it.
    */
+  | 'documents-synced'
+  | 'documents-sync-failed'
   | 'backup-stale'
   | 'alert-sent'
   | 'backup-taken'

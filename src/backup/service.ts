@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import * as docker from '../docker/index.js'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
@@ -173,6 +173,19 @@ export async function takeBackup(
     uploadsBytes = sizeOf(join(setDir, 'uploads.tar.gz'))
   }
 
+  /*
+   * What documents existed when this set was taken, so a restore of it can be
+   * faithful to that moment rather than pairing an old database with today's
+   * files. Best effort: a set whose index could not be written is still a set,
+   * and the database is the half that cannot be re-derived.
+   */
+  try {
+    const { listDocuments, writeDocumentIndex } = await import('./documents.js')
+    writeDocumentIndex(setDir, await listDocuments())
+  } catch {
+    /* No index. `restore` falls back to everything offsite, and says so. */
+  }
+
   const manifest: BackupManifest = {
     takenAt: new Date().toISOString(),
     trigger,
@@ -332,10 +345,36 @@ export async function restoreBackup(
   })
   if (replay.code !== 0) return { ok: false, steps }
 
-  if (set.includesUploads) {
+  /*
+   * Documents come from the tar when this set has one, and from the bucket when
+   * it does not.
+   *
+   * A set fetched from offsite never has a tar: it is the whole uploads volume
+   * in one file, and sending it would duplicate every document already in the
+   * bucket one-by-one. So a rebuilt machine restores its documents by name from
+   * `documents.index.json` -- which is also what makes the restore faithful to
+   * the moment rather than pairing an old database with every file written
+   * since.
+   *
+   * The tar is preferred where it exists because it is local, needs no network,
+   * and is one extraction rather than N fetches. It is also, for now, the only
+   * copy on a box with no offsite configured.
+   */
+  const tarPath = join(backupsRoot(dir), id, 'uploads.tar.gz')
+  if (set.includesUploads && existsSync(tarPath)) {
     const extract = await docker.restoreUploads(containerPath(id, 'uploads.tar.gz'))
-    steps.push({ step: 'restore-documents', ok: extract.code === 0 })
+    steps.push({ step: 'restore-documents', ok: extract.code === 0, detail: 'from this set\'s archive' })
     if (extract.code !== 0) return { ok: false, steps }
+  } else {
+    const { restoreDocuments } = await import('./documents.js')
+    const restored = await restoreDocuments(join(backupsRoot(dir), id), dir)
+    steps.push({ step: 'restore-documents', ok: restored.ok, detail: restored.detail })
+    /*
+     * Not fatal. The database is the half that cannot be re-derived, and it is
+     * already back; stopping here would leave the application down over
+     * documents that can be fetched again once the reason is fixed. The step
+     * says what happened and the caller can see it failed.
+     */
   }
 
   const started = await docker.start(['app', 'nginx'])

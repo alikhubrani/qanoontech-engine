@@ -446,6 +446,83 @@ export async function archiveUploads(outPath: string, options?: DockerOptions): 
   )
 }
 
+/**
+ * Every stored document, with its size, as `<bytes> <path>` lines.
+ *
+ * The engine mounts the Docker socket and its own state and nothing else, so it
+ * cannot walk the uploads volume itself — a helper container does it, which is
+ * the same arrangement every other file operation here uses. One spawn per
+ * tick, whatever the file count.
+ *
+ * `.incoming` is skipped: those are part-uploads with no database row, swept
+ * after six hours by the application, and copying one offsite means copying a
+ * file that is about to be deleted.
+ *
+ * Stored names are sanitised to letters, digits, Arabic, `_` and `-` before
+ * they reach disk (`buildStoredName` in the application), so a path never
+ * contains a space and "first token is the size, the rest is the path" holds.
+ */
+export async function listUploads(options?: DockerOptions): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--volume', `${UPLOADS_VOLUME}:/uploads:ro`,
+      BUSYBOX_HELPER_IMAGE,
+      'sh', '-c',
+      `cd /uploads && find . -type f -not -path './.incoming/*' | while IFS= read -r f; do ` +
+        `printf '%s %s\n' "$(stat -c %s "$f")" "\${f#./}"; done`,
+    ],
+    options,
+  )
+}
+
+/**
+ * Copy named documents out of the uploads volume so the engine can read them.
+ *
+ * The list arrives as a file on the engine's own volume rather than as
+ * arguments, because a thousand paths is longer than a command line and
+ * because a path is data, not syntax.
+ */
+export async function stageUploads(
+  listPath: string,
+  stageDir: string,
+  options?: DockerOptions,
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--volume', `${UPLOADS_VOLUME}:/uploads:ro`,
+      '--volume', `${ENGINE_VOLUME}:/state`,
+      BUSYBOX_HELPER_IMAGE,
+      'sh', '-c',
+      `while IFS= read -r f; do mkdir -p "${stageDir}/$(dirname "$f")" && ` +
+        `cp "/uploads/$f" "${stageDir}/$f"; done < ${listPath}`,
+    ],
+    options,
+  )
+}
+
+/** Put documents back, from a directory the engine filled. */
+export async function unstageUploads(
+  stageDir: string,
+  options?: DockerOptions,
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--volume', `${UPLOADS_VOLUME}:/uploads`,
+      '--volume', `${ENGINE_VOLUME}:/state:ro`,
+      BUSYBOX_HELPER_IMAGE,
+      'sh', '-c',
+      `cp -a ${stageDir}/. /uploads/`,
+    ],
+    options,
+  )
+}
+
 export async function restoreUploads(inPath: string, options?: DockerOptions): Promise<CommandResult> {
   return run(
     'docker',

@@ -208,3 +208,73 @@ describe('bringing a set back', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+/**
+ * Which set goes next, and the backlog that used to be unreachable.
+ *
+ * This returned the newest-or-nothing, so a deployment that turned offsite on
+ * — or had it fail for a fortnight — copied only what it took from that moment
+ * and left every earlier set on the box for ever. Staging had fourteen such
+ * sets when Drive was swapped for R2, and thirteen of them were never going to
+ * be copied anywhere.
+ */
+describe('choosing what to send offsite', () => {
+  const makeSet = (dir: string, id: string, uploaded: boolean) => {
+    mkdirSync(join(dir, 'backups', id), { recursive: true })
+    writeFileSync(
+      join(dir, 'backups', id, 'manifest.json'),
+      JSON.stringify({
+        takenAt: `${id.slice(0, 10)}T${id.slice(11, 19).replaceAll('-', ':')}.000Z`,
+        trigger: 'scheduled',
+        appVersion: '1.0.0',
+        includesUploads: false,
+        databaseBytes: 1,
+        uploadsBytes: 0,
+      }),
+    )
+    if (uploaded) {
+      writeFileSync(
+        join(dir, 'backups', id, 'offsite.json'),
+        JSON.stringify({ uploadedAt: '2026-09-12T00:00:00.000Z', attempts: 1, lastError: '' }),
+      )
+    }
+  }
+
+  const enableOffsite = (dir: string) => {
+    const state = loadState(dir)
+    saveState(
+      { ...state, settings: { ...state.settings, backupOffsiteEnabled: true, backupOffsiteDriveId: 'x' } },
+      dir,
+    )
+  }
+
+  it('sends the newest first — one upload should buy the most recent copy', () => {
+    enableOffsite(dir)
+    makeSet(dir, '2026-09-01T10-00-00Z', false)
+    makeSet(dir, '2026-09-12T10-00-00Z', false)
+    expect(pendingOffsite(dir)).toBe('2026-09-12T10-00-00Z')
+  })
+
+  it('then drains the backlog oldest-first', () => {
+    enableOffsite(dir)
+    makeSet(dir, '2026-09-01T10-00-00Z', false)
+    makeSet(dir, '2026-09-05T10-00-00Z', false)
+    makeSet(dir, '2026-09-12T10-00-00Z', true)
+    expect(pendingOffsite(dir)).toBe('2026-09-01T10-00-00Z')
+  })
+
+  it('is finished when everything has gone', () => {
+    enableOffsite(dir)
+    makeSet(dir, '2026-09-01T10-00-00Z', true)
+    makeSet(dir, '2026-09-12T10-00-00Z', true)
+    expect(pendingOffsite(dir)).toBeUndefined()
+  })
+
+  it('sends nothing while offsite is off', () => {
+    // The suite's beforeEach turns offsite on for every other test here.
+    const state = loadState(dir)
+    saveState({ ...state, settings: { ...state.settings, backupOffsiteEnabled: false } }, dir)
+    makeSet(dir, '2026-09-12T10-00-00Z', false)
+    expect(pendingOffsite(dir)).toBeUndefined()
+  })
+})

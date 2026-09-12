@@ -4,6 +4,7 @@ import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/servic
 import { backupDue } from '../backup/schedule.js'
 import { backupHealth } from '../backup/health.js'
 import { alertIfNeeded } from '../backup/alert.js'
+import { syncDocuments } from '../backup/documents.js'
 import { loadState } from '../state/store.js'
 import type { ServerContext } from './context.js'
 
@@ -51,6 +52,19 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
     if (pending) {
       const sent = await uploadSet(pending, ctx.dir)
       ctx.audit.record(sent.ok ? 'offsite-uploaded' : 'offsite-failed', { detail: sent.detail })
+    }
+
+    /*
+     * Documents, once each. Independent of the sets: they are shared by all of
+     * them and outlive every one that mentions them, so they go on their own
+     * schedule and in their own prefix. A batch per tick, so a first run on an
+     * established box makes progress without filling the engine's volume.
+     */
+    if (loadState(ctx.dir).settings.backupOffsiteEnabled) {
+      const synced = await syncDocuments(ctx.dir)
+      if (synced.sent > 0 || !synced.ok) {
+        ctx.audit.record(synced.ok ? 'documents-synced' : 'documents-sync-failed', { detail: synced.detail })
+      }
     }
 
     /*

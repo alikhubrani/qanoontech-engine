@@ -21,6 +21,19 @@ import { BACKUPS_DIR, listBackups } from './service.js'
  */
 
 const OFFSITE_FILE = 'offsite.json'
+
+/**
+ * The two things the store holds, kept apart.
+ *
+ * A backup set is a moment; a document is a file that outlives every moment
+ * that mentions it. They were both at the root, which worked only because
+ * `listRemote` filtered the top level by the timestamp pattern and quietly
+ * ignored anything else — a rule nobody reading the bucket could see. Two
+ * prefixes say it instead, and listing a set no longer means listing every
+ * document to throw them away.
+ */
+const SETS = 'backups/'
+const DOCUMENTS = 'documents/'
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/
 
 const offsiteRecordSchema = z.object({
@@ -80,10 +93,22 @@ export async function uploadSet(
 
     for (const name of readdirSync(setDir)) {
       if (name === OFFSITE_FILE) continue
+      /*
+       * The documents tar stays on the box.
+       *
+       * It is the whole uploads volume in one file, and sending it would put
+       * 11.9 MB of documents in the bucket beside the same documents already
+       * there one-by-one -- the duplication this phase exists to end, with the
+       * extra insult of paying for it twice a day. Offsite gets the
+       * incrementals under `documents/`; the tar is a local convenience while
+       * it lasts, and `documents.index.json` is what a fetched set restores
+       * from.
+       */
+      if (name === 'uploads.tar.gz') continue
       const local = join(setDir, name)
       const { statSync } = await import('node:fs')
       const size = statSync(local).size
-      const key = `${id}/${name}`
+      const key = `${SETS}${id}/${name}`
 
       /*
        * Skip what is already there at the same size. A retry after a partial
@@ -108,15 +133,38 @@ export async function uploadSet(
 }
 
 /**
- * The newest set that has not gone out yet, if any. The tick calls this: a
- * failed or missing copy of the newest set is retried until it lands.
+ * The next set to send: the newest if it has not gone, otherwise the oldest
+ * that has not.
+ *
+ * The newest comes first because it is the one worth having — a copy of last
+ * hour beats a copy of last Tuesday, and if only one upload succeeds before the
+ * connection goes, that is the one to have spent it on.
+ *
+ * The backlog behind it used to be unreachable. This returned the newest or
+ * nothing, so a deployment that turned offsite on, or had it fail for a
+ * fortnight, uploaded only what it took from that moment and left every earlier
+ * set on the box for ever. Staging had fourteen of them: Drive had been
+ * refusing every upload since 2 September, and when it was pointed at R2
+ * instead, thirteen of those sets were still never going to be copied anywhere.
+ *
+ * Oldest-first for the backlog, so it drains in the order it accumulated and a
+ * set cannot be skipped past indefinitely. One per tick, which at five-minute
+ * ticks clears a fortnight's backlog in an afternoon without ever competing
+ * with the set that matters most.
  */
 export function pendingOffsite(dir = stateDir()): string | undefined {
   if (!loadState(dir).settings.backupOffsiteEnabled) return undefined
-  const [newest] = listBackups(dir)
-  if (!newest) return undefined
-  const record = readOffsite(newest.id, dir)
-  return record.uploadedAt ? undefined : newest.id
+  const sets = listBackups(dir)
+  if (sets.length === 0) return undefined
+
+  const unsent = (id: string): boolean => !readOffsite(id, dir).uploadedAt
+  if (unsent(sets[0]!.id)) return sets[0]!.id
+
+  // `listBackups` is newest-first, so the last unsent is the oldest.
+  for (let index = sets.length - 1; index > 0; index -= 1) {
+    if (unsent(sets[index]!.id)) return sets[index]!.id
+  }
+  return undefined
 }
 
 export interface RemoteSet {
@@ -136,12 +184,12 @@ export async function listRemote(
 
   try {
     const localIds = new Set(listBackups(dir).map((set) => set.id))
-    const objects = await client.list('')
+    const objects = await client.list(SETS)
 
-    /* Keys are `<set id>/<file>`, so the sets are the distinct first segments. */
+    /* Keys are `backups/<set id>/<file>`, so the sets are the first segments. */
     const bySet = new Map<string, { files: number; bytes: number }>()
     for (const object of objects) {
-      const id = object.key.split('/')[0] ?? ''
+      const id = object.key.slice(SETS.length).split('/')[0] ?? ''
       if (!ID_PATTERN.test(id)) continue
       const entry = bySet.get(id) ?? { files: 0, bytes: 0 }
       entry.files += 1
@@ -173,13 +221,13 @@ export async function fetchSet(
   if (!client) return { ok: false, detail: reason ?? 'off' }
 
   try {
-    const objects = await client.list(`${name}/`)
+    const objects = await client.list(`${SETS}${name}/`)
     if (objects.length === 0) return { ok: false, detail: `No backup named ${name} in ${client.label}.` }
 
     const setDir = join(dir, BACKUPS_DIR, name)
     mkdirSync(setDir, { recursive: true })
     for (const object of objects) {
-      const file = object.key.slice(name.length + 1)
+      const file = object.key.slice(SETS.length + name.length + 1)
       if (!file || file.includes('/')) continue
       await client.get(object.key, join(setDir, file))
     }

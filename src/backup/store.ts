@@ -51,6 +51,22 @@ class DriveStore implements OffsiteStore {
 
   constructor(private readonly client: DriveClient) {}
 
+  /**
+   * Drive's root folder is already called "QanoonTech Backups", so a `backups/`
+   * folder inside it would say the same word twice and push every existing set
+   * one level deeper for nothing.
+   *
+   * The keys are the shared namespace and each store renders them the way its
+   * own world is shaped: object storage has no folders and needs the prefix to
+   * keep sets and documents apart, Drive has a named root that already does
+   * that job. Stripping it here is the adapter translating, not a special case
+   * — and it means the sets already in a firm's Drive stay exactly where they
+   * are.
+   */
+  private native(key: string): string {
+    return key.startsWith('backups/') ? key.slice('backups/'.length) : key
+  }
+
   private root(): Promise<string> {
     return this.folder(ROOT_FOLDER, this.client.sharedDriveId)
   }
@@ -82,25 +98,27 @@ class DriveStore implements OffsiteStore {
   }
 
   async put(key: string, filePath: string, contentType: string): Promise<void> {
-    const at = await this.resolve(key, true)
+    const at = await this.resolve(this.native(key), true)
     await this.client.uploadFile(at!.name, at!.parent, filePath, contentType)
   }
 
   async stat(key: string): Promise<OffsiteObject | undefined> {
-    const at = await this.resolve(key, false)
+    const at = await this.resolve(this.native(key), false)
     if (!at) return undefined
     const found = await this.client.findChild(at.name, at.parent)
     return found ? { key, size: Number(found.size ?? 0) } : undefined
   }
 
   async list(prefix: string): Promise<OffsiteObject[]> {
-    // Prefixes here are either '' (every set) or '<id>/' (one set's files).
-    const trimmed = prefix.replace(/\/$/, '')
+    const asked = this.native(prefix)
+    const back = (key: string) => (prefix === asked ? key : `backups/${key}`)
+    // Prefixes here are '' (everything), 'backups/' (every set) or one set.
+    const trimmed = asked.replace(/\/$/, '')
     const objects: OffsiteObject[] = []
     if (trimmed === '') {
       for (const folder of await this.client.listChildren(await this.root())) {
         for (const file of await this.client.listChildren(folder.id)) {
-          objects.push({ key: `${folder.name}/${file.name}`, size: Number(file.size ?? 0) })
+          objects.push({ key: back(`${folder.name}/${file.name}`), size: Number(file.size ?? 0) })
         }
       }
       return objects
@@ -108,13 +126,13 @@ class DriveStore implements OffsiteStore {
     const found = await this.client.findChild(trimmed, await this.root())
     if (!found) return []
     for (const file of await this.client.listChildren(found.id)) {
-      objects.push({ key: `${trimmed}/${file.name}`, size: Number(file.size ?? 0) })
+      objects.push({ key: back(`${trimmed}/${file.name}`), size: Number(file.size ?? 0) })
     }
     return objects
   }
 
   async get(key: string, toPath: string): Promise<void> {
-    const at = await this.resolve(key, false)
+    const at = await this.resolve(this.native(key), false)
     if (!at) throw new Error(`${key} is not in Drive.`)
     const found = await this.client.findChild(at.name, at.parent)
     if (!found) throw new Error(`${key} is not in Drive.`)
@@ -122,7 +140,7 @@ class DriveStore implements OffsiteStore {
   }
 
   async remove(key: string): Promise<void> {
-    const at = await this.resolve(key, false)
+    const at = await this.resolve(this.native(key), false)
     if (!at) return
     const found = await this.client.findChild(at.name, at.parent)
     if (found) await this.client.deleteFile(found.id)
