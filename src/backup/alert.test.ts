@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { alertDue } from './alert.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { alertDue, noteHealthLevel } from './alert.js'
 
 /**
  * When an alert goes out, and — mostly — when it does not.
@@ -53,5 +56,42 @@ describe('deciding to send an alert', () => {
    */
   it('does not email for a backup that is merely late', () => {
     expect(alertDue({ level: 'warn', last: undefined, now })).toBe(false)
+  })
+})
+
+/**
+ * The audit trail gets the same throttle the mailbox does.
+ *
+ * `backup-stale` was recorded on every tick. Staging held fifty identical lines
+ * in one afternoon, in a trail that is a few kilobytes and exists to be read --
+ * the same "people learn to ignore it" failure as an alert that repeats, one
+ * surface along.
+ */
+describe('noting the health level', () => {
+  let dir: string
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'alert-note-')) })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('is news the first time', () => {
+    expect(noteHealthLevel('stale', dir)).toBe(true)
+  })
+
+  it('is not news five minutes later', () => {
+    noteHealthLevel('stale', dir)
+    expect(noteHealthLevel('stale', dir)).toBe(false)
+    expect(noteHealthLevel('stale', dir)).toBe(false)
+  })
+
+  it('is news again when the state actually changes', () => {
+    noteHealthLevel('stale', dir)
+    expect(noteHealthLevel('ok', dir)).toBe(true)
+    expect(noteHealthLevel('stale', dir)).toBe(true)
+  })
+
+  /* It must not swallow the reminder the mailer decides on separately. */
+  it('leaves the last-sent time alone, so reminders still come due', () => {
+    noteHealthLevel('stale', dir)
+    const before = alertDue({ level: 'stale', last: { level: 'stale', sentAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString() }, now: Date.now() })
+    expect(before).toBe(true)
   })
 })
