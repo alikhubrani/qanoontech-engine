@@ -158,6 +158,23 @@ no retained set names.
 appear in the bucket within a tick. Delete the local uploads volume. Recover it
 from the bucket. Open the document in the application.
 
+**Status 2026-09-12 — running on both boxes.** `.106` holds 80 document objects
+(8.3 MB); `.18` holds all 28 of the firm's documents (11.86 MB), which landed on
+the first tick after R2 was switched on there. Backup sets drain one per tick,
+newest first and then oldest-first through the backlog — watched on `.18` from
+27 waiting down through 24 with `alert-sent` staying at 0 the whole time, which
+is the state that had staging emailing every five minutes before 0.11.2.
+
+Both boxes have now passed `backup drill`. Still outstanding in this phase:
+**bringing a set back from the bucket and restoring *that*** — `offsite test`
+proves the bucket takes and returns bytes and `backup drill` proves a *local*
+dump restores, but the R2 round trip has never been exercised outside a test.
+`fetchSet` and `listRemote` are wired only to the web panel, not to `cli.ts`,
+so the recovery path a firm would actually use cannot be driven from a shell —
+which contradicts §3's rule that the engine must work when the application does
+not. `offsite fetch <id>` belongs in the CLI. After that, dropping
+`uploads.tar.gz` from the sets (1b).
+
 ### Phase 2 — Encrypted engine state offsite, and `engine recover`
 
 **Read first.** `src/state/store.ts`, `src/lib/json-files.ts`,
@@ -172,9 +189,60 @@ Then `engine recover`: endpoint, bucket, two keys, passphrase → state, compose
 newest backup set, documents, up, and a `backup drill` at the end to prove what
 it restored.
 
-**Acceptance on `.106`.** Destroy the engine volume entirely. On a clean Docker,
-run the engine, give it four values and a passphrase, and watch the deployment
-come back. Sign in to the application. Open a case. Open a document.
+**Acceptance — a machine that has never seen this deployment.**
+
+Destroying the engine volume on `.106` is the *rehearsal*, not the test. It
+leaves the image cache warm, the host configured, the network already working
+and the box already trusted by R2 — so it proves the state snapshot is readable
+and proves nothing about the parts of recovery that only fail on a cold
+machine: a registry pull with no cache, preflight against a virgin kernel,
+egress to Cloudflare from an address that has never reached it, and a clock that
+nobody has set. Recovery is exactly the situation where none of those can be
+assumed, because the machine you are recovering onto is the one you bought this
+morning.
+
+So the test is **a fresh VM**, and it passes only when every line below is true:
+
+1. A new VM, no QanoonTech image ever pulled, no state volume.
+2. Install the engine. Give it the endpoint, the bucket, two keys and the
+   recovery passphrase — and nothing else. No file copied by hand, no value
+   read off the old box, no `docker cp`.
+3. It comes back: state, compose, the newest backup set, the documents.
+4. Sign in to the application. Open a case. Open a document and read it.
+5. `backup drill` on the recovered box passes.
+6. Row counts match the source: same tables, users, cases, clients.
+
+Do the volume-destroy rehearsal on `.106` first, because a failure there is
+cheap to diagnose. But the phase is not done until the VM run passes, and the
+VM run is what gets recorded.
+
+**Why this is the acceptance test and not a nice-to-have.** Everything this
+programme has caught has been of one kind — a record asserting a safety
+property, trusted over the thing it describes. The manifest that stopped the
+schedule for three days. The health check green while backups were dead. A size
+read from a header that was not there. An alert announcing its own recovery
+forever. `offsite.json` claiming copies that had been deleted. And, found on
+2026-09-12 and still open, an audit line reading *"taken and verified"* over
+code that checks pg_dump's exit status and nothing else.
+
+A recovery procedure nobody has run end to end on a cold machine is the same
+kind of record: a claim about a safety property, believed because it was
+written down. The only thing that converts it is running it.
+
+**What was measured on 2026-09-12**, so the VM run has numbers to beat:
+
+| | `.106` | `.18` (the firm) |
+| --- | --- | --- |
+| database restore | 1.1s | 1.0s |
+| tables | 49 | 49 |
+| rows | 10 users, 12 cases, 2 clients | 4 users, 6 cases, 6 clients |
+| documents in the bucket | 80 objects, 8.3 MB | 28 objects, 11.86 MB |
+
+Both drills restored into a scratch database and dropped it; neither live
+database was touched, and no scratch database was left behind. This was the
+first time any set on the firm's box had been proven restorable — 27 sets going
+back to 3 September had been described as "verified" by an audit line that
+verified nothing.
 
 ### Phase 3 — The database is a connection string
 
@@ -283,6 +351,34 @@ be measured both ways.
 3. **Whether the whole system ever moves to the cloud.** It changes nothing in
    phases 1–3 and it changes Phase 5's shape, so it is worth answering before
    Phase 4.
+
+### Open defect — `"taken and verified"` verifies nothing
+
+Found 2026-09-12, unfixed. `takeBackup` writes this audit line after every set:
+
+```
+{"event":"backup-taken","detail":"Backup 2026-09-12T16-23-44Z taken and verified."}
+```
+
+The whole of the verification behind that word is:
+
+```ts
+const dump = await docker.dumpDatabase(target, containerPath(id, 'database.sql.gz'))
+if (dump.code !== 0) { ...fail... }
+```
+
+pg_dump's exit status. Nothing reads the dump back, nothing checks the gzip is
+intact, nothing counts a row. The line is on the firm's box 27 times covering
+sets back to 3 September, and until the drill on 2026-09-12 not one of them had
+ever been restored.
+
+It is the programme's recurring failure in its purest form: a record asserting a
+safety property, written by the thing that benefits from it being believed. It
+is listed here rather than fixed in passing because there is a choice in it —
+**verify, or stop claiming to.** The cheap end is decompressing the dump and
+confirming it parses before the manifest is written; the honest minimum is
+deleting the word. A backup that lies about itself is worse than one that says
+nothing, because the lie is what stops anyone checking.
 
 ---
 
