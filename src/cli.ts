@@ -195,6 +195,47 @@ secrets
   })
 
 secrets
+  .command('remove <name>')
+  .description('Delete a stored secret. Refuses one the deployment still needs')
+  .option('--force', 'remove it anyway')
+  .action(async (name: string, options: { force?: boolean }) => {
+    const { loadSecrets, saveSecrets, GENERATED_SECRETS } = await import('./state/store.js')
+    const { CATALOGUE } = await import('./catalogue/index.js')
+    const { loadState } = await import('./state/store.js')
+
+    const secrets = loadSecrets()
+    if (!(name in secrets)) fail(`${name} is not stored.`)
+
+    /*
+     * A secret can be stale two ways: nothing declares it any more (a module
+     * that was retired), or nothing has *yet* (a module not turned on). Only
+     * the first is safe to remove without asking, and the difference is not
+     * visible from the name — so the check is against what this deployment
+     * actually runs.
+     */
+    if (!options.force) {
+      if (GENERATED_SECRETS.some((g) => g.name === name)) {
+        fail(`${name} is generated for this deployment and removing it would break it. --force if you mean it.`)
+      }
+      const enabled = new Set(loadState().enabled)
+      const claimedBy = CATALOGUE.filter(
+        (m) => (m.required || enabled.has(m.id)) && m.secrets.some((secret) => secret.name === name),
+      )
+      if (claimedBy.length > 0) {
+        fail(`${name} is used by ${claimedBy.map((m) => m.title).join(', ')}. --force if you mean it.`)
+      }
+    }
+
+    const { [name]: _removed, ...rest } = secrets
+    saveSecrets(rest)
+    console.log(`${name} removed.`)
+    // The snapshot carries secrets, so the copy in the store still holds it
+    // until the next tick replaces it. Say so rather than implying it is gone
+    // everywhere.
+    console.log('The offsite snapshot still carries it until the next tick rewrites it.')
+  })
+
+secrets
   .command('list')
   .description('Which secrets are set. Never their values')
   .action(() => {

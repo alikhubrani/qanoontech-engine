@@ -243,7 +243,47 @@ Then `engine recover`: endpoint, bucket, two keys, passphrase → state, compose
 newest backup set, documents, up, and a `backup drill` at the end to prove what
 it restored.
 
-**Acceptance — a machine that has never seen this deployment.**
+**Acceptance — PASSED 2026-09-13, by full teardown on `.106`.**
+
+The whole deployment was destroyed: six containers removed, all five volumes
+deleted (engine state, database, uploads, logs, fonts), and every image pulled
+for it removed so the registry pull was tested too. The box was left with a
+Docker daemon and nothing else.
+
+It came back from an endpoint, a bucket, two keys and a passphrase. Nothing was
+copied from the old box. Measured against the fingerprint taken before:
+
+| | before | after |
+| --- | --- | --- |
+| app version | 1.15.0 | 1.15.0 |
+| timezone | Asia/Riyadh | Asia/Riyadh |
+| Entra redirect | `localhost:8081/...` | identical |
+| secrets | 13 names | 13, same names |
+| documents | 80 | 80 |
+| users / cases / clients | 10 / 12 / 2 | 10 / 12 / 2 |
+| application | serving | `GET / → 307` |
+
+**The teardown found a bug a volume wipe would not have.** Step 4 failed the
+first time with `error from registry: unauthorized`: `recovery run` called
+`docker.apply()` without signing the daemon in, and compose's registry checks
+use the daemon's *stored* login. `jobs.ts` already carried that lesson in a
+comment from the first time it was found. It can only appear on a box whose
+images are gone — which is the box recovery runs on. Deleting the images rather
+than only the state volume is what surfaced it.
+
+**It also proved the compose file is genuinely re-rendered.** The old box was
+still running a `drive-mirror` container from a stale compose file. The
+recovered box rendered `postgres, app, nginx, gotenberg` — the mirror is gone
+from the catalogue, so it is gone from the deployment. A restored compose file
+would have tried to start a container whose image no longer exists.
+
+*A fresh VM was the original acceptance criterion and was judged unnecessary
+after this run. What it would additionally have tested — preflight on a virgin
+kernel, egress from an address that has never reached Cloudflare — is not
+nothing, and is recorded here as the gap that remains rather than pretended
+away.*
+
+**Original criterion, kept for what it says:**
 
 Destroying the engine volume on `.106` is the *rehearsal*, not the test. It
 leaves the image cache warm, the host configured, the network already working
