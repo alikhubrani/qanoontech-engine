@@ -83,10 +83,20 @@ export function alertDue(input: {
 }): boolean {
   const { level, last, now } = input
   const bad = level === 'stale' || level === 'none'
+  const wasBad = last?.level === 'stale' || last?.level === 'none'
 
   if (!bad) {
-    // Recovery is worth one message, and only if a problem was reported.
-    return last !== undefined && last.level !== 'ok'
+    /*
+     * Only a return to `ok` is news, and only after a real problem.
+     *
+     * This read `last.level !== 'ok'`, which is true of `warn` — so once a box
+     * settled at `warn` it announced its own recovery on every tick, forever.
+     * Staging sent an email every five minutes until it was muted by hand. The
+     * shape of the mistake is worth keeping: "not ok" and "was bad" are not the
+     * same set, and `warn` sits in the gap between them.
+     */
+    if (level !== 'ok') return false
+    return wasBad
   }
   if (!last || last.level === 'ok') return true
   if (last.level !== level) return true
