@@ -3,7 +3,7 @@ import { pendingOffsite, uploadSet } from '../backup/offsite.js'
 import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { backupHealth } from '../backup/health.js'
-import { alertIfNeeded } from '../backup/alert.js'
+import { alertIfNeeded, noteHealthLevel } from '../backup/alert.js'
 import { syncDocuments } from '../backup/documents.js'
 import { loadState } from '../state/store.js'
 import type { ServerContext } from './context.js'
@@ -77,7 +77,14 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
      * whether anything threw.
      */
     const health = backupHealth(ctx.dir)
-    if (health.level === 'stale' || health.level === 'none') {
+    /*
+     * On the way in, not on every tick. This recorded unconditionally and a
+     * staging box held one identical line every five minutes -- 288 a day,
+     * about one unchanging fact, in a trail that is a few kilobytes and exists
+     * to be read.
+     */
+    const changed = noteHealthLevel(health.level, ctx.dir)
+    if (changed && (health.level === 'stale' || health.level === 'none')) {
       ctx.audit.record('backup-stale', { detail: health.detail })
     }
     const alert = await alertIfNeeded(health, ctx.dir)

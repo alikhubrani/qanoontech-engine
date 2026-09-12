@@ -42,6 +42,27 @@ interface AlertRecord {
   sentAt: string
 }
 
+/**
+ * Remember the state, and say whether it is news.
+ *
+ * The audit trail needs this as much as the mailbox does. `backup-stale` was
+ * recorded on every tick, so a box that had been stale for an afternoon held
+ * fifty identical lines and a box stale for a week would hold two thousand --
+ * in a trail that is 6.8 KB in total and exists to be read. A record that
+ * repeats is a record nobody reads, which is the same failure as an alert that
+ * repeats, one surface along.
+ *
+ * Transitions only. The current state is always in `engine status`; the trail
+ * is for when it changed. A standing problem still leaves a trail, because the
+ * six-hourly reminder records `alert-sent`.
+ */
+export function noteHealthLevel(level: BackupHealth['level'], dir = stateDir(), now = Date.now()): boolean {
+  const last = readAlert(dir)
+  if (last?.level === level) return false
+  writeJsonAtomic(join(dir, ALERT_FILE), { level, sentAt: last?.sentAt ?? new Date(now).toISOString() })
+  return true
+}
+
 function readAlert(dir: string): AlertRecord | undefined {
   const raw = readJsonFile(join(dir, ALERT_FILE), { lenient: true })
   return raw && typeof raw === 'object' ? (raw as AlertRecord) : undefined
