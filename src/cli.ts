@@ -57,6 +57,19 @@ program
       console.log('plan           not deployable:')
       for (const problem of plan.problems) console.log(`               - ${problem}`)
     }
+
+    /*
+     * Backups, here, because this is the command anyone runs without being
+     * asked to. A firm's backups stopped for three days and every screen said
+     * green -- nothing had failed, it had stopped being asked -- so the state
+     * belongs on the page people already look at rather than behind a
+     * subcommand they would have to suspect something to run.
+     */
+    const { backupHealth } = await import('./backup/health.js')
+    const health = backupHealth()
+    const mark = health.level === 'ok' ? '✓' : health.level === 'warn' ? '!' : '✗'
+    console.log('')
+    console.log(`backups      ${mark} ${health.detail}`)
   })
 
 program
@@ -226,6 +239,42 @@ backup
   })
 
 backup
+  .command('restore <id>')
+  .description('Replace the live database with a set. Stops the application while it runs')
+  .option('--yes', 'proceed without the confirmation prompt')
+  .action(async (id: string, options: { yes?: boolean }) => {
+    /*
+     * Restore existed only in the web panel, which is the same asymmetry
+     * `apply` had twice -- once for the registry login, once for the
+     * pre-update backup. Recovery is the thing most likely to be done from a
+     * shell, on a box whose panel may be exactly what is not working.
+     *
+     * `--yes` is required rather than offered. This replaces a firm's live
+     * database and stops the application to do it; a command that does that
+     * because somebody pressed up-arrow and return is the wrong shape. There
+     * is no prompt to answer instead, deliberately: this runs over ssh in
+     * scripts and a prompt that cannot be seen is worse than a flag that must
+     * be typed.
+     */
+    if (!options.yes) {
+      console.error(`This replaces the live database with backup ${id}.`)
+      console.error('Everything written since it was taken is lost, and the application stops while it runs.')
+      console.error('A safety copy is taken first, so this is undoable — but it is not nothing.')
+      console.error('')
+      console.error(`Re-run with --yes to proceed:  backup restore ${id} --yes`)
+      process.exit(1)
+    }
+
+    const { restoreBackup } = await import('./backup/service.js')
+    const result = await restoreBackup(id)
+    for (const step of result.steps) {
+      console.log(`  ${step.ok ? 'ok  ' : 'FAIL'}  ${step.step}${step.detail ? `  ${step.detail}` : ''}`)
+    }
+    console.log(result.ok ? `\nRestored ${id}.` : '\nThe restore did not finish. The application may be stopped.')
+    process.exit(result.ok ? 0 : 1)
+  })
+
+backup
   .command('drill [id]')
   .description('Restore a set into a scratch database and time it — the only proof a backup is one')
   .action(async (id?: string) => {
@@ -238,6 +287,126 @@ backup
       console.log('Documents restore separately and are the slower half; this number is the database alone.')
     }
     process.exit(result.ok ? 0 : 1)
+  })
+
+/** Where the second copy goes, and whether it actually goes there. */
+const offsite = program.command('offsite').description('The copy of every backup that is not on this box')
+
+offsite
+  .command('status')
+  .description('Where backups are copied to, and whether the credentials work')
+  .action(async () => {
+    const { loadState } = await import('./state/store.js')
+    const { offsiteStore } = await import('./backup/store.js')
+    const { listBackups } = await import('./backup/service.js')
+    const { readOffsite } = await import('./backup/offsite.js')
+
+    const settings = loadState().settings
+    console.log(`enabled    ${settings.backupOffsiteEnabled}`)
+    console.log(`provider   ${settings.backupOffsiteProvider}`)
+    if (settings.backupOffsiteProvider === 's3') {
+      console.log(`endpoint   ${settings.backupS3Endpoint || '(not set)'}`)
+      console.log(`bucket     ${settings.backupS3Bucket || '(not set)'}`)
+      console.log(`region     ${settings.backupS3Region}`)
+      if (settings.backupS3Prefix) console.log(`prefix     ${settings.backupS3Prefix}`)
+    } else {
+      console.log(`drive      ${settings.backupOffsiteDriveId || '(not set)'}`)
+    }
+
+    const { store, reason } = offsiteStore()
+    if (!store) {
+      console.log(`\nnot usable — ${reason}`)
+      process.exit(1)
+    }
+
+    const sets = listBackups()
+    const waiting = sets.filter((set) => !readOffsite(set.id).uploadedAt)
+    console.log(`\n${sets.length} set(s) here, ${waiting.length} not yet copied to ${store.label}.`)
+    if (waiting.length > 0) console.log(`oldest waiting: ${waiting.at(-1)!.id}`)
+  })
+
+offsite
+  .command('use-s3 <endpoint> <bucket>')
+  .description('Send backups to S3-compatible storage (Cloudflare R2). Set the keys with `secrets set` first')
+  .option('--region <region>', 'credential-scope region; R2 wants "auto"', 'auto')
+  .option('--prefix <prefix>', 'key prefix, so one bucket can hold several deployments')
+  .action(async (endpoint: string, bucket: string, options: { region: string; prefix?: string }) => {
+    const { loadState, saveState, loadSecrets } = await import('./state/store.js')
+    const secrets = loadSecrets()
+    for (const name of ['S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
+      if (!secrets[name]) {
+        console.error(`${name} is not stored. Set it first:  secrets set ${name}`)
+        process.exit(1)
+      }
+    }
+
+    const state = loadState()
+    saveState(
+      {
+        ...state,
+        settings: {
+          ...state.settings,
+          backupOffsiteEnabled: true,
+          backupOffsiteProvider: 's3',
+          backupS3Endpoint: endpoint.replace(/\/$/, ''),
+          backupS3Bucket: bucket,
+          backupS3Region: options.region,
+          backupS3Prefix: options.prefix ?? '',
+        },
+      },
+    )
+    console.log(`Offsite is now ${bucket} at ${endpoint}.`)
+    console.log("Run 'offsite test' to prove the credentials before trusting it.")
+  })
+
+offsite
+  .command('test')
+  .description('Write a small object, read it back, and delete it — proof, not configuration')
+  .action(async () => {
+    const { offsiteStore } = await import('./backup/store.js')
+    const { store, reason } = offsiteStore()
+    if (!store) {
+      console.error(`Offsite is not usable: ${reason}`)
+      process.exit(1)
+    }
+
+    /*
+     * A round trip, not a list. Listing proves the credential can read; a firm
+     * finds out whether it can *write* at 2am on the night it matters, which
+     * is the wrong time. This writes, reads back, compares and cleans up.
+     */
+    const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+
+    const work = mkdtempSync(join(tmpdir(), 'qt-offsite-'))
+    const token = `engine connectivity check ${new Date().toISOString()}`
+    const localOut = join(work, 'probe.json')
+    const localBack = join(work, 'probe-back.json')
+    const key = '__engine_check__/probe.json'
+
+    try {
+      writeFileSync(localOut, token)
+      console.log(`writing   ${key} to ${store.label}…`)
+      await store.put(key, localOut, 'application/json')
+
+      const seen = await store.stat(key)
+      console.log(`stat      ${seen ? `${seen.size} bytes` : 'NOT FOUND'}`)
+
+      await store.get(key, localBack)
+      const same = readFileSync(localBack, 'utf8') === token
+      console.log(`read back ${same ? 'identical' : 'DIFFERENT — do not trust this store'}`)
+      if (!same) process.exit(1)
+
+      await store.remove(key)
+      console.log(`cleaned   probe removed`)
+      console.log(`\n${store.label} is writable and readable from this box.`)
+    } catch (error) {
+      console.error(`\nFailed: ${(error as Error).message}`)
+      process.exit(1)
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
   })
 
 program
