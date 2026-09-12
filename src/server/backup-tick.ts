@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { pendingOffsite, reconcileOffsite, uploadSet } from '../backup/offsite.js'
+import { offsiteClient, pendingOffsite, reconcileOffsite, uploadSet } from '../backup/offsite.js'
+import { pushSnapshot } from '../backup/snapshot.js'
 import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { backupHealth } from '../backup/health.js'
@@ -77,6 +78,19 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
       if (synced.sent > 0 || !synced.ok) {
         ctx.audit.record(synced.ok ? 'documents-synced' : 'documents-sync-failed', { detail: synced.detail })
       }
+    }
+
+    /*
+     * The engine's own state, encrypted, so a dead box is recoverable.
+     *
+     * Last of the offsite work and unconditional, because it is cheap when
+     * nothing has changed — a hash comparison against a local marker, no
+     * request at all. A snapshot failing must never stop a backup being taken,
+     * so it returns an outcome rather than throwing.
+     */
+    const snapshot = await pushSnapshot(ctx.dir, offsiteClient(ctx.dir).client, ctx.engineVersion)
+    if (snapshot.sent || !snapshot.ok) {
+      ctx.audit.record(snapshot.ok ? 'snapshot-copied' : 'snapshot-failed', { detail: snapshot.detail })
     }
 
     /*

@@ -66,6 +66,11 @@ export type AuditEvent =
   | 'offsite-uploaded'
   | 'offsite-failed'
   | 'offsite-fetched'
+  /* The engine's own state, encrypted, in the bucket — the file that turns a
+   * restored database back into a deployment. */
+  | 'snapshot-copied'
+  | 'snapshot-failed'
+  | 'recovered'
 
 export interface AuditEntry {
   readonly at: string

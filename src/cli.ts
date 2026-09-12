@@ -513,6 +513,129 @@ program
   })
 
 // ---------------------------------------------------------------------------
+// Recovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything else the engine copies offsite is useless without the snapshot.
+ * A restored database with no `DATABASE_URL`, no JWT secret and no record of
+ * which version or which modules a firm ran is a pile of rows.
+ */
+const recovery = program.command('recovery').description('The copy of this engine that is not on this box')
+
+recovery
+  .command('passphrase')
+  .description('Set the recovery passphrase, read from stdin. Without it nothing is copied')
+  .action(async () => {
+    const { loadSecrets, saveSecrets } = await import('./state/store.js')
+    const { RECOVERY_PASSPHRASE, clearKeyCache } = await import('./backup/snapshot.js')
+
+    const passphrase = readFileSync(0, 'utf8').trim()
+    if (passphrase === '') fail('Nothing on stdin. Pipe the passphrase in.')
+    if (passphrase.length < 12) fail('Too short. This is the only thing standing between a bucket and every credential this deployment holds.')
+
+    const secrets = loadSecrets()
+    const replacing = Boolean(secrets[RECOVERY_PASSPHRASE])
+    saveSecrets({ ...secrets, [RECOVERY_PASSPHRASE]: passphrase })
+    clearKeyCache()
+
+    console.log(replacing ? 'Recovery passphrase replaced.' : 'Recovery passphrase set.')
+    if (replacing) {
+      // The old snapshot in the bucket is still sealed under the old
+      // passphrase. Say so, because "I changed it" and "the copy I would
+      // restore from needs the previous one" are easy to hold at once.
+      console.log('The snapshot already in the store still opens with the *previous* passphrase')
+      console.log('until the next tick replaces it. Keep both until `recovery status` says copied.')
+    }
+    console.log('\nWrite it down somewhere that survives this machine. Lose it and the')
+    console.log('snapshot cannot be opened by anyone, including you.')
+  })
+
+recovery
+  .command('status')
+  .description('Whether this deployment could be brought back, and from what')
+  .action(async () => {
+    const { loadSecrets } = await import('./state/store.js')
+    const { offsiteStore } = await import('./backup/store.js')
+    const { SNAPSHOT_KEY, RECOVERY_PASSPHRASE } = await import('./backup/snapshot.js')
+
+    const secrets = loadSecrets()
+    console.log(`passphrase     ${secrets[RECOVERY_PASSPHRASE] ? 'set' : '(not set — nothing is being copied)'}`)
+
+    const { store, reason } = offsiteStore()
+    if (!store) {
+      console.log(`store          not usable — ${reason}`)
+      process.exit(1)
+    }
+    console.log(`store          ${store.label}`)
+
+    const found = await store.stat(SNAPSHOT_KEY)
+    console.log(`snapshot       ${found ? `${found.size} bytes at ${SNAPSHOT_KEY}` : '(not in the store)'}`)
+    if (!found) {
+      console.log('\nThis deployment cannot currently be recovered from the store.')
+      process.exit(1)
+    }
+    console.log('\nA bare machine could be brought back with the endpoint, the bucket,')
+    console.log('two keys and the passphrase.')
+  })
+
+recovery
+  .command('show')
+  .description('Open the snapshot and print what it holds. Never prints a secret value')
+  .requiredOption('--endpoint <url>', 'S3 endpoint')
+  .requiredOption('--bucket <bucket>', 'bucket name')
+  .action(async (options: { endpoint: string; bucket: string }) => {
+    const { fetchSnapshot } = await import('./backup/snapshot.js')
+    const store = await recoveryStore(options.endpoint, options.bucket)
+    const passphrase = await ask('Recovery passphrase: ')
+
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const work = mkdtempSync(join(tmpdir(), 'qt-recover-'))
+    try {
+      const got = await fetchSnapshot(store, passphrase, join(work, 'state.enc'))
+      if (!got.ok) fail(got.detail)
+      const body = got.body!
+      console.log(`taken          ${body.takenAt}`)
+      console.log(`by engine      ${body.engineVersion}`)
+      const state = body.state as { version?: string; enabled?: string[] }
+      console.log(`app version    ${state.version ?? '(unknown)'}`)
+      console.log(`modules        ${(state.enabled ?? []).join(', ') || '(none beyond required)'}`)
+      // Names only. The whole point of the file is that the values are not
+      // readable without the passphrase; printing them here would undo that on
+      // whatever terminal this was typed into.
+      console.log(`secrets        ${Object.keys(body.secrets).sort().join(', ')}`)
+      console.log(`audit entries  ${body.audit.length}`)
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  })
+
+/** An S3 store built from values typed now, not from state this box does not have. */
+async function recoveryStore(endpoint: string, bucket: string) {
+  const { s3StoreFrom } = await import('./backup/store.js')
+  const accessKeyId = await ask('S3 access key id: ')
+  const secretAccessKey = await ask('S3 secret access key: ')
+  if (!accessKeyId || !secretAccessKey) fail('Both keys are needed to read the store.')
+  return s3StoreFrom({ endpoint, bucket, accessKeyId, secretAccessKey })
+}
+
+/** Read one line from stdin without echoing it back to the terminal. */
+async function ask(prompt: string): Promise<string> {
+  process.stdout.write(prompt)
+  const { createInterface } = await import('node:readline')
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
+  return new Promise((resolve) => {
+    rl.question('', (answer) => {
+      rl.close()
+      process.stdout.write('\n')
+      resolve(answer.trim())
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Who may sign in
 // ---------------------------------------------------------------------------
 

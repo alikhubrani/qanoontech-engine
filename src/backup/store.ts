@@ -74,6 +74,39 @@ class S3Store implements OffsiteStore {
 }
 
 /**
+ * A store from credentials supplied right now, rather than from stored state.
+ *
+ * Recovery is the case this exists for: a bare machine has no settings and no
+ * secrets — that is what it is recovering — so the endpoint, bucket and keys
+ * are typed by whoever is holding the terminal. Everything after the first
+ * fetch comes from the snapshot itself.
+ */
+export function s3StoreFrom(
+  config: {
+    endpoint: string
+    bucket: string
+    region?: string
+    accessKeyId: string
+    secretAccessKey: string
+    prefix?: string
+  },
+  fetcher: typeof fetch = fetch,
+): OffsiteStore {
+  const client = S3Client.from(
+    {
+      endpoint: config.endpoint,
+      bucket: config.bucket,
+      region: config.region ?? 'auto',
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+    fetcher,
+  )
+  const prefix = config.prefix ? `${config.prefix.replace(/^\/+|\/+$/g, '')}/` : ''
+  return new S3Store(client, prefix)
+}
+
+/**
  * The configured store, or null with the reason a panel should show.
  *
  * Never throws: every caller is a tick or a just-finished backup, and neither
