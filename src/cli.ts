@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs'
+import { Writable } from 'node:stream'
 import { Command } from 'commander'
 import { CATALOGUE, REQUIRED_MODULE_IDS, findModule } from './catalogue/index.js'
 import * as docker from './docker/index.js'
@@ -715,13 +716,52 @@ async function recoveryStore(endpoint: string, bucket: string) {
   return s3StoreFrom({ endpoint, bucket, accessKeyId, secretAccessKey })
 }
 
-/** Read one line from stdin without echoing it back to the terminal. */
+/**
+ * Ask for one secret value, from a person or from a pipe.
+ *
+ * Both matter and they behave differently. Recovery is typed by someone at a
+ * terminal on a bad day, and it is also run from a script over ssh — the
+ * acceptance test for this phase is exactly that. A prompt that only works one
+ * way is a prompt that fails in whichever case was not tried.
+ *
+ * Piped: stdin is drained once and handed out a line at a time, because
+ * readline in terminal mode over a pipe echoed the first value and then stalled
+ * on the second. Interactive: the echo is suppressed, so a key does not end up
+ * in the scrollback of whoever was watching.
+ */
+let piped: string[] | undefined
+
 async function ask(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    if (piped === undefined) {
+      // Read once. Asking twice of a pipe gets nothing the second time.
+      piped = readFileSync(0, 'utf8').split('\n')
+    }
+    const line = piped.shift()
+    if (line === undefined) fail(`Nothing left on stdin for: ${prompt.trim()}`)
+    return line!.trim()
+  }
+
   process.stdout.write(prompt)
   const { createInterface } = await import('node:readline')
-  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
+  /*
+   * Echo is suppressed for the length of the answer. A recovery passphrase and
+   * two store keys are exactly the values that should not be readable over a
+   * shoulder or recoverable from a scrollback buffer. The mute sits on a
+   * wrapper rather than on stdout itself, so the prompt above still prints.
+   */
+  let muted = false
+  const muteable = new Writable({
+    write(chunk, _encoding, callback) {
+      if (!muted) process.stdout.write(chunk as Buffer)
+      callback()
+    },
+  })
+  const rl = createInterface({ input: process.stdin, output: muteable, terminal: true })
+  muted = true
   return new Promise((resolve) => {
     rl.question('', (answer) => {
+      muted = false
       rl.close()
       process.stdout.write('\n')
       resolve(answer.trim())
