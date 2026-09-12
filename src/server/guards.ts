@@ -26,14 +26,45 @@ export interface GuardConfig {
   readonly allowedHosts: readonly string[]
 }
 
-export function defaultAllowedHosts(bindAddress: string): string[] {
+/**
+ * Hostnames this engine will answer to.
+ *
+ * `extra` is where a deployment's own address arrives — the tunnel hostname the
+ * panel is reached at. It is **derived from the Entra redirect URI** rather
+ * than configured separately, because those two are the same fact: the redirect
+ * URI names where a browser comes back to, so that host is by definition how
+ * this panel is addressed. Two settings would mean one of them being set and
+ * the other forgotten, and the symptom — a 421 after a successful Microsoft
+ * sign-in — points nowhere near the cause.
+ *
+ * `ENGINE_ALLOWED_HOSTS` stays for development and is deliberately **not** the
+ * mechanism here: `ENGINE_RUN_ARGS` carries no environment, and self-update
+ * removes the container and re-runs it from that constant, so anything set on
+ * the container by hand survives exactly until the next update. A setting on
+ * the state volume survives; an env var does not.
+ */
+export function defaultAllowedHosts(bindAddress: string, extra: readonly string[] = []): string[] {
   const hosts = new Set(['127.0.0.1', 'localhost', '::1'])
   if (bindAddress) hosts.add(bindAddress)
-  for (const extra of (process.env['ENGINE_ALLOWED_HOSTS'] ?? '').split(',')) {
-    const trimmed = extra.trim()
+  for (const host of extra) {
+    const trimmed = host.trim().toLowerCase()
+    if (trimmed) hosts.add(trimmed)
+  }
+  for (const candidate of (process.env['ENGINE_ALLOWED_HOSTS'] ?? '').split(',')) {
+    const trimmed = candidate.trim()
     if (trimmed) hosts.add(trimmed)
   }
   return [...hosts]
+}
+
+/** The hostname a redirect URI points at, when it is a URL we can read. */
+export function hostOfRedirect(redirectUri: string): string[] {
+  if (!redirectUri) return []
+  try {
+    return [new URL(redirectUri).hostname.toLowerCase()]
+  } catch {
+    return []
+  }
 }
 
 /** The hostname part of a Host header or an Origin, lowercased, or undefined. */

@@ -8,7 +8,7 @@ import { loadState, stateDir } from '../state/store.js'
 import { AuditLog } from './audit.js'
 import { AuthStore } from './auth.js'
 import type { ServerContext } from './context.js'
-import { checkHost, checkOrigin, defaultAllowedHosts, refuse } from './guards.js'
+import { checkHost, checkOrigin, defaultAllowedHosts, hostOfRedirect, refuse } from './guards.js'
 import { startBackupLoop } from './backup-tick.js'
 import { JobRunner } from './jobs.js'
 import { backupRoutes } from './routes/backups.js'
@@ -66,7 +66,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     auth: new AuthStore(dir),
     audit: new AuditLog(dir),
     guard: {
-      allowedHosts: options.allowedHosts ?? defaultAllowedHosts(state.settings.bindAddress),
+      allowedHosts:
+        options.allowedHosts ??
+        defaultAllowedHosts(state.settings.bindAddress, hostOfRedirect(state.settings.entraRedirectUri)),
     },
     engineVersion: engineVersion(),
   }

@@ -572,6 +572,12 @@ auth
     saveState({ ...state, settings: { ...state.settings, entraRedirectUri: url } })
     console.log(`Redirect URI set to ${url}`)
     console.log('It must match one registered on the Entra application exactly.')
+    // The same value decides which Host header the engine will answer to, so
+    // say so — a 421 after a successful Microsoft sign-in points nowhere near
+    // its cause, and this is the moment the connection is obvious.
+    const host = new URL(url).hostname
+    console.log(`\nThe panel will now also answer to the host name ${host}.`)
+    console.log('Restart the engine for that to take effect:  self-update <this version>')
   })
 
 auth

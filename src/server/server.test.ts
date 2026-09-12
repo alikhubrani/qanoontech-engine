@@ -228,3 +228,55 @@ describe('a deployment that is not ready to sign in', () => {
     expect(settings.entraRedirectUri).toBe('')
   })
 })
+
+/**
+ * The panel's own address has to be one it will answer to.
+ *
+ * The Host guard defends against DNS rebinding and refuses anything it was not
+ * told to serve. A deployment reached through a tunnel is addressed by that
+ * hostname, so the guard has to know it — and the failure if it does not is
+ * uniquely misleading: Microsoft authenticates the person, redirects back, and
+ * the engine answers 421 about a host name, which reads as a tunnel fault
+ * rather than a setting.
+ *
+ * Derived from the redirect URI rather than configured beside it, because they
+ * are the same fact stated once.
+ */
+describe('the host the panel is reached at', () => {
+  const withRedirect = (url: string) => {
+    const state = loadState(dir)
+    saveState({ ...state, settings: { ...state.settings, entraRedirectUri: url } }, dir)
+    return buildServer({ dir, logger: false })
+  }
+
+  it('answers to the host in the redirect URI', async () => {
+    const server = withRedirect('https://portal.j-lawfirm.example.com/api/session/entra/callback')
+    const response = await server.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: 'portal.j-lawfirm.example.com' },
+    })
+    expect(response.statusCode).toBe(200)
+    await server.close()
+  })
+
+  it('still refuses a host it was never told about', async () => {
+    const server = withRedirect('https://portal.j-lawfirm.example.com/api/session/entra/callback')
+    const response = await server.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: 'attacker.example' },
+    })
+    expect(response.statusCode).toBe(421)
+    await server.close()
+  })
+
+  it('is unbothered by a redirect URI that is not a URL', async () => {
+    // Never throw while assembling a guard: a malformed setting must narrow
+    // what is served, never stop the engine answering at all.
+    const server = withRedirect('not a url')
+    const response = await server.inject({ method: 'GET', url: '/api/health', headers: { host: 'localhost' } })
+    expect(response.statusCode).toBe(200)
+    await server.close()
+  })
+})
