@@ -53,9 +53,28 @@ describe('deciding to send an alert', () => {
   /*
    * `warn` is late, not stopped -- a snapshot or two behind. Mailing somebody
    * about it at 3am would teach them to ignore the address.
+   *
+   * The first of these passed before the fix and proved nothing: with no
+   * previous record the predicate short-circuited on `last !== undefined`, so
+   * the case that actually mattered -- a box sitting at `warn` with a record
+   * already written -- was never exercised. On staging that shipped as an email
+   * every five minutes.
    */
   it('does not email for a backup that is merely late', () => {
     expect(alertDue({ level: 'warn', last: undefined, now })).toBe(false)
+  })
+
+  it('does not announce recovery while it is still only warning', () => {
+    expect(alertDue({ level: 'warn', last: sent('warn', 0.1), now })).toBe(false)
+    expect(alertDue({ level: 'warn', last: sent('warn', 48), now })).toBe(false)
+    expect(alertDue({ level: 'warn', last: sent('stale', 1), now })).toBe(false)
+  })
+
+  it('announces recovery once, when it is actually back to ok', () => {
+    expect(alertDue({ level: 'ok', last: sent('stale', 1), now })).toBe(true)
+    expect(alertDue({ level: 'ok', last: sent('none', 1), now })).toBe(true)
+    // A box that was only ever late has nothing to recover from.
+    expect(alertDue({ level: 'ok', last: sent('warn', 1), now })).toBe(false)
   })
 })
 
