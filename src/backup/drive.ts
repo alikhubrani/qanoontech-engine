@@ -179,6 +179,14 @@ export class DriveClient {
   }
 
   /** Stream a file down to disk. */
+  /**
+   * Remove a file. Used by the connectivity probe, which must not leave litter
+   * in a firm's Drive to prove it can write there.
+   */
+  async deleteFile(fileId: string): Promise<void> {
+    await this.call(`${DRIVE}/files/${fileId}?supportsAllDrives=true`, { method: 'DELETE' })
+  }
+
   async downloadFile(fileId: string, toPath: string): Promise<void> {
     const response = await this.call(`${DRIVE}/files/${fileId}?alt=media`)
     const { createWriteStream } = await import('node:fs')

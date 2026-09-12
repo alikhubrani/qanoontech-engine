@@ -207,6 +207,25 @@ export async function runPreflight(dir = stateDir()): Promise<CheckResult[]> {
     }
   }
 
+
+  /*
+   * Backups, before a deploy rather than after it.
+   *
+   * `apply` runs migrations against live data, so "is there a recent copy of
+   * this database" is a question with a right time to ask, and it is now. It
+   * warns rather than fails: refusing to deploy because a backup is late would
+   * make a stale backup into an outage, and `apply` takes its own `pre-update`
+   * set a moment later anyway.
+   */
+  const { backupHealth } = await import('../backup/health.js')
+  const backups = backupHealth(dir)
+  results.push({
+    id: 'backups',
+    title: 'Backups',
+    status: backups.level === 'ok' ? 'pass' : backups.level === 'warn' ? 'warn' : 'fail',
+    detail: backups.detail,
+  })
+
   return results
 }
 

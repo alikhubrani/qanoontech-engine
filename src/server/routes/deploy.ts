@@ -19,8 +19,15 @@ const settingsPatchSchema = z.object({
   // -- not from this endpoint, not from the CLI. An operator has to be able to
   // turn the logs up when something is wrong and down when it is not.
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).optional(),
+  backupIntervalMinutes: z.number().int().min(5).max(1440).optional(),
   backupOffsiteEnabled: z.boolean().optional(),
   backupOffsiteDriveId: z.string().optional(),
+  backupOffsiteProvider: z.enum(['drive', 's3']).optional(),
+  backupS3Endpoint: z.string().optional(),
+  backupS3Bucket: z.string().optional(),
+  backupS3Region: z.string().optional(),
+  backupS3Prefix: z.string().optional(),
+  alertEmail: z.string().optional(),
 })
 
 /**
