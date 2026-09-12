@@ -128,8 +128,45 @@ describe('the client', () => {
   })
 
   it('reports a missing object as absent rather than as a failure', async () => {
-    const fetcher = (async () => new Response('', { status: 404 })) as unknown as typeof fetch
+    const fetcher = (async () =>
+      new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', {
+        status: 200,
+      })) as unknown as typeof fetch
     await expect(new S3Client(config, fetcher).head('sets/nope')).resolves.toBeUndefined()
+  })
+
+  /*
+   * Cloudflare compresses some responses, and a gzipped HEAD carries no
+   * `content-length` at all -- so reading the size from a HEAD returned zero,
+   * intermittently. Since that answer decides whether a file is uploaded again,
+   * a zero meant re-sending every set on every tick, quietly, forever.
+   */
+  it('takes a size from the list body, which no transfer encoding can alter', async () => {
+    let sawHead = false
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') sawHead = true
+      return new Response(
+        `<ListBucketResult><IsTruncated>false</IsTruncated>
+           <Contents><Key>sets/a/database.sql.gz</Key><Size>142576</Size></Contents>
+         </ListBucketResult>`,
+        { status: 200, headers: { 'content-encoding': 'gzip' } },
+      )
+    }) as unknown as typeof fetch
+
+    const found = await new S3Client(config, fetcher).head('sets/a/database.sql.gz')
+    expect(found).toEqual({ key: 'sets/a/database.sql.gz', size: 142576 })
+    expect(sawHead, 'HEAD is not trusted for size through a CDN').toBe(false)
+  })
+
+  it('does not mistake a longer key that starts the same for the one asked for', async () => {
+    const fetcher = (async () =>
+      new Response(
+        `<ListBucketResult><IsTruncated>false</IsTruncated>
+           <Contents><Key>sets/a/database.sql.gz.partial</Key><Size>9</Size></Contents>
+         </ListBucketResult>`,
+        { status: 200 },
+      )) as unknown as typeof fetch
+    await expect(new S3Client(config, fetcher).head('sets/a/database.sql.gz')).resolves.toBeUndefined()
   })
 
   it('turns a refusal into an error that names the status', async () => {

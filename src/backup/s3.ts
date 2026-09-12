@@ -194,18 +194,26 @@ export class S3Client {
     await this.send(signed, 'PUT', body)
   }
 
-  /** Size of an object, or undefined when it is not there. */
+  /**
+   * Size of an object, or undefined when it is not there.
+   *
+   * **Listed, not HEADed**, and that is not a style choice. Cloudflare
+   * compresses some responses on the way out, and when it does the HEAD comes
+   * back `content-encoding: gzip` with **no `content-length` at all** — so the
+   * obvious `Number(headers.get('content-length') ?? 0)` reads as zero. It is
+   * intermittent: measured against R2 on 2026-09-12, one key answered 46 and
+   * another answered nothing, minutes apart, same code.
+   *
+   * That is worse than a cosmetic bug. This answer decides whether a file is
+   * re-uploaded, so a zero means every set is sent again on every tick — a
+   * quiet, permanent doubling of a firm's egress that looks like it is working.
+   *
+   * `ListObjectsV2` returns `<Size>` in the body, which no transfer encoding
+   * can alter. One request, same cost, an answer that is actually the object's.
+   */
   async head(key: string): Promise<S3Object | undefined> {
-    const signed = signRequest({
-      config: this.config,
-      method: 'HEAD',
-      path: this.path(key),
-      payloadHash: sha256(''),
-    })
-    const response = await this.fetcher(signed.url, { method: 'HEAD', headers: signed.headers })
-    if (response.status === 404) return undefined
-    if (!response.ok) throw new Error(`HEAD ${key} → ${response.status}`)
-    return { key, size: Number(response.headers.get('content-length') ?? 0) }
+    const listed = await this.list(key)
+    return listed.find((object) => object.key === key)
   }
 
   /**
