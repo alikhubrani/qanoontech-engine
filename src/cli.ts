@@ -353,6 +353,62 @@ offsite
     console.log("Run 'offsite test' to prove the credentials before trusting it.")
   })
 
+/**
+ * What is in the bucket, and bringing one back — from a shell.
+ *
+ * These existed only on the web panel, which contradicted the rule the engine
+ * is built on: it has to work when the application does not. A firm recovering
+ * onto a new machine has a terminal and a bucket, and quite possibly no panel
+ * yet — so the path home cannot be a page. `fetchSet` and `listRemote` were
+ * already written and tested; only the shell could not reach them.
+ *
+ * `fetch` puts the set in the ordinary local list and stops. It does not
+ * restore: bringing a copy back and overwriting the live database are different
+ * decisions, and `backup restore` is where the second one is made. Drill it
+ * first — that is the point of having it on disk.
+ */
+offsite
+  .command('list')
+  .description('Every set in the bucket, and whether it is also on this box')
+  .action(async () => {
+    const { listRemote } = await import('./backup/offsite.js')
+    const result = await listRemote()
+    if (!result.ok) {
+      console.error(`Could not read the store: ${result.detail}`)
+      process.exit(1)
+    }
+    if (result.sets.length === 0) {
+      console.log('No sets in the store.')
+      return
+    }
+    for (const set of result.sets) {
+      const size = `${(set.bytes / 1_048_576).toFixed(2)} MB`.padStart(9)
+      // "here" is the useful half: it says which of these you would have to
+      // fetch before you could restore them.
+      console.log(`${set.name}  ${String(set.files).padStart(3)} file(s) ${size}  ${set.local ? 'here' : 'store only'}`)
+    }
+    console.log(`\n${result.sets.length} set(s) in the store, ${result.sets.filter((s) => !s.local).length} not on this box.`)
+  })
+
+offsite
+  .command('fetch <id>')
+  .description('Bring a set back from the store into the local list. Does not restore it')
+  .action(async (id: string) => {
+    const { fetchSet } = await import('./backup/offsite.js')
+    const { AuditLog } = await import('./server/audit.js')
+
+    console.log(`fetching  ${id}…`)
+    const result = await fetchSet(id)
+    new AuditLog().record(result.ok ? 'offsite-fetched' : 'offsite-failed', { detail: result.detail })
+
+    if (!result.ok) {
+      console.error(result.detail)
+      process.exit(1)
+    }
+    console.log(result.detail)
+    console.log(`\nIt is in the local list now. Prove it before you trust it:\n  backup drill ${id}`)
+  })
+
 offsite
   .command('test')
   .description('Write a small object, read it back, and delete it — proof, not configuration')
