@@ -172,8 +172,23 @@ dump restores, but the R2 round trip has never been exercised outside a test.
 `fetchSet` and `listRemote` are wired only to the web panel, not to `cli.ts`,
 so the recovery path a firm would actually use cannot be driven from a shell —
 which contradicts §3's rule that the engine must work when the application does
-not. `offsite fetch <id>` belongs in the CLI. After that, dropping
-`uploads.tar.gz` from the sets (1b).
+not. `offsite fetch <id>` belongs in the CLI.
+
+*Both closed 2026-09-12.* `offsite list` and `offsite fetch` shipped in 0.13.0,
+and the round trip was proven on `.106`: a set was deleted from disk so the
+bucket held the only copy, fetched back, and restored — 35 tables in 0.8s.
+
+**1b is decided against, not deferred.** The plan was to drop `uploads.tar.gz`
+from each set once documents were in the bucket separately. It never cost
+bandwidth — `uploadSet` has always skipped the tar — so the whole saving was
+about 320 MB of local disk on the firm's box. Against that, now that documents
+go offsite on their own, **the tar is the offline copy**: it is what lets a set
+restore with no network at all, on a box whose internet is down or whose R2
+credentials have been rotated out from under it. A backup that needs a working
+connection to be a backup is a weaker backup. 320 MB is a fair price, and
+`backupIncludeUploads` stays true.
+
+Phase 1 is complete.
 
 ### Phase 2 — Encrypted engine state offsite, and `engine recover`
 
@@ -181,6 +196,45 @@ not. `offsite fetch <id>` belongs in the CLI. After that, dropping
 `src/backup/offsite.ts`, `src/server/routes/deploy.ts`, and the first-run path in
 `src/server/auth.ts`. Confirm what the complete set of state files is rather than
 trusting §2's list.
+
+**Inspected 2026-09-12. §2's list was wrong in two ways, and both change the
+design.**
+
+`offsite.json` appears in the code's file constants but is **not** root state —
+it lives at `backups/<set id>/offsite.json`, one per set. It travels with the
+set, so a recovery that fetches sets from the bucket gets it back for free and
+must not try to snapshot it globally.
+
+`.106` holds `auth.json.bak-20260907` — a stray file no code writes, left by
+hand. **So the snapshot takes a known list, never a directory glob.** A glob
+would have carried a stale credential file to the new machine and, depending on
+restore order, reinstated a superseded password. Anything not on the list is not
+state, however much it looks like it.
+
+What the eleven real files are, and what recovery should do with each:
+
+| file | recover? | why |
+| --- | --- | --- |
+| `state.json` | **yes** | settings, version, enabled modules — the deployment's identity |
+| `secrets.json` | **yes** | the point of the exercise; encrypted at rest in the bucket |
+| `licence.paseto` | **yes** | without it a recovered box is unlicensed and stops |
+| `auth.json` | **decide** | the operator password hash. Recovering it restores access with a credential that may be why you are recovering. See below. |
+| `audit.jsonl` | **tail only** | enough to explain the last deploy; it is append-only history, not state, and the whole file may be large |
+| `docker-compose.generated.yml` | **no** | rendered from `state.json` plus the catalogue. Restoring it pins a stale render against a newer engine — the file is an output, and outputs are re-derived, never restored |
+| `sessions.json` | **no** | live sessions must not survive onto a different machine |
+| `throttle.json` | **no** | a lockout counter is about one box's recent attackers |
+| `alerts.json` | **no** | transient; it re-derives on the first tick |
+| `clock.json` | **no** | tamper detection for *this* box's clock (`src/licence/clock.ts`) |
+| `heartbeat.json` | **no** | a stored conclusion about licence checks, and `src/licence/state.ts` says in its own comment that stored conclusions can disagree with their inputs. Re-derive it. |
+| `backups/` | separately | sets come from the bucket by name, carrying their own `offsite.json` |
+
+**The `auth.json` question is real and should be answered before building.**
+Recovery is often *because* something went wrong, and restoring the old password
+hash restores whatever weakness came with it. The alternative is that a
+recovered engine has no credential and runs its ordinary first-run setup, which
+is also how a stolen state snapshot stops being a way in. Phase 4a (Entra)
+makes this mostly moot, which is an argument for not over-thinking it now:
+recover nothing, run setup.
 
 **Build.** A snapshot of engine state — settings, secrets, module config, enough
 audit to explain the last deploy — encrypted with a key derived from the
@@ -256,6 +310,15 @@ network), and `src/preflight/index.ts`.
 assemble from the deployed `postgres` module, so no existing deployment changes.
 Set means use it, and `postgres` stops being required. Backup, restore, drill and
 preflight all take the URL rather than assuming a neighbour container.
+
+**This is the phase where rollback stops being free.** Every other phase undoes
+by swapping an image: Phase 2 is additive, Phase 4a ships
+`engine auth use-password` for exactly this reason. Not this one. Once a firm's
+data is on an external PostgreSQL 17 server, going back to in-compose 15 is a
+restore, not a rollback — the same shape as the app's R4 migration, the one
+change in that programme that could not be undone by changing the image. Plan
+the window accordingly, take a set immediately before, and drill it before
+starting rather than after.
 
 **Postgres 15 → 17 rides along here, and only here.** Decided 2026-09-12.
 
