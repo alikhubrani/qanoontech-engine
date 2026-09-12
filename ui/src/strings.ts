@@ -163,15 +163,6 @@ export const S = {
 
   // Settings
   navSettings: 'Settings',
-  passwordTitle: 'Operator password',
-  passwordExplainer:
-    'Changing it signs out every session, including this one — you will sign back in with the new password.',
-  passwordCurrent: 'Current password',
-  passwordNew: 'New password',
-  passwordConfirm: 'Repeat the new password',
-  passwordMismatch: 'The two entries of the new password do not match.',
-  passwordSubmit: 'Change password',
-  passwordChanged: 'Password changed. Sign in again.',
 
   // Engine update
   engineTitle: 'Engine',
