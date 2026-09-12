@@ -150,8 +150,8 @@ that existed when it was taken, so a restore knows what to fetch without first
 needing a readable database.
 
 **Retention trap, stated so it is not rediscovered.** Documents must outlive
-every backup set that references them. A monthly set from March pointing at
-files pruned in April is not a backup. The blob store prunes last, and only what
+every backup set that references them. A set from last month pointing at files
+pruned last week is not a backup. The blob store prunes last, and only what
 no retained set names.
 
 **Acceptance on `.106`.** Upload a document through the application; watch it

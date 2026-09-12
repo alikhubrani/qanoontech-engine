@@ -282,26 +282,34 @@ export async function verifyDump(path: string): Promise<{ ok: true } | { ok: fal
 
 /** Sets are dense near today and sparse behind it. */
 const DENSE_HOURS = 48
-const MONTHLY_MONTHS = 12
 
-/** `2026-09-11`, `2026-09`, in the deployment's own reckoning (UTC ids). */
+/** `2026-09-11`, in the deployment's own reckoning (UTC ids). */
 const dayOf = (at: number): string => new Date(at).toISOString().slice(0, 10)
-const monthOf = (at: number): string => new Date(at).toISOString().slice(0, 7)
 
 /**
- * Which sets survive, and it is a shape rather than a cutoff.
+ * Which sets survive: everything for two days, then one a day, then nothing.
  *
- * A flat "older than N days" was right when a set was taken once a night. With
- * an hourly snapshot it would hold 720 of them for a month — every one a
- * directory, and every one an upload to the firm's bucket — to answer a question
- * nobody asks about 3am six days ago.
+ * A flat "older than N days" was wrong at one snapshot an hour — it would hold
+ * 720 directories for a month to answer a question nobody asks about 3am six
+ * days ago. Thinning to one a day fixes that. The daily keeper is the
+ * **oldest** set in its day, not the newest, because the useful copy of a day
+ * is the one taken before that day's work rather than after it.
  *
- * So: everything for two days, then one a day, then one a month. On the firm's
- * measured numbers that steadies at about ninety sets and thirteen megabytes,
- * while making "restore to an hour ago" and "what did this look like in March"
- * both true. The daily and monthly keepers are the **oldest** set in their
- * period, not the newest, because the useful copy of a day is the one taken
- * before that day's work rather than after it.
+ * **`retentionDays` is the whole horizon.** There used to be a third tier —
+ * one set a month for a year — so that "what did this look like in March"
+ * stayed answerable. It was removed on 2026-09-13, and the reason is worth
+ * keeping because it is not about disk:
+ *
+ * The offsite copy is the one that matters, and it is pruned by an R2 lifecycle
+ * rule, which can only express a flat age. A local tier outliving that rule
+ * means `reconcileOffsite` finds sets the bucket has dropped, records them as
+ * drift, and queues them for upload — where the rule deletes them again. An
+ * upload/delete churn on every set between the rule's age and a year old,
+ * forever, with the panel reporting a backlog that never clears.
+ *
+ * Two retention policies that disagree are worse than one that is shorter than
+ * you would like. If a long horizon is wanted later, it has to be expressed on
+ * both sides or on neither.
  *
  * The newest three stay whatever their age — a box that was off for two months
  * should not wake up, prune everything, and then fail its next dump with no set
@@ -314,9 +322,7 @@ export function keptBackupIds(sets: readonly BackupSet[], now: number, retention
 
   const dense = now - DENSE_HOURS * 60 * 60 * 1000
   const daily = now - retentionDays * 24 * 60 * 60 * 1000
-  const monthly = now - MONTHLY_MONTHS * 31 * 24 * 60 * 60 * 1000
   const dayKeeper = new Map<string, string>()
-  const monthKeeper = new Map<string, string>()
 
   for (const set of sets) {
     const at = Date.parse(set.takenAt)
@@ -328,10 +334,8 @@ export function keptBackupIds(sets: readonly BackupSet[], now: number, retention
     // Later entries are older, so the last one written wins — the oldest in
     // the period, which is the copy taken before that period's work.
     if (at >= daily) dayKeeper.set(dayOf(at), set.id)
-    if (at >= monthly) monthKeeper.set(monthOf(at), set.id)
   }
   for (const id of dayKeeper.values()) keep.add(id)
-  for (const id of monthKeeper.values()) keep.add(id)
   return keep
 }
 

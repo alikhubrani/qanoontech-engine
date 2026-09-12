@@ -142,23 +142,27 @@ describe('retention', () => {
       return id
     }
     /*
-     * Five sets, each in a different month and all far past the 30-day daily
-     * window. Retention is a shape now, not a cutoff: these survive as the
-     * monthly keepers, which is the "what did this look like in March"
-     * question a firm eventually asks. Only a sixth set in a month that
-     * already has one would go.
+     * Five sets, all far past the 30-day window. Four are pruned; the newest
+     * three survive only on the floor that stops a box waking from a long
+     * sleep and pruning itself down to nothing.
+     *
+     * They used to survive as monthly keepers. That tier was removed on
+     * 2026-09-13 so local retention and the bucket's lifecycle rule could state
+     * the same horizon -- see `keptBackupIds`.
      */
     const ids = [ancient(40, 1), ancient(50, 2), ancient(60, 3), ancient(70, 4), ancient(80, 5)]
-    expect(pruneBackups(dir)).toEqual([])
-    expect(listBackups(dir)).toHaveLength(ids.length)
+    const pruned = pruneBackups(dir)
+    expect(pruned).toEqual(ids.slice(3))
+    expect(listBackups(dir)).toHaveLength(3)
   })
 
   /*
    * The shape itself, tested as a pure function so it needs no directories:
-   * everything for two days, then one a day for the retention window, then one
-   * a month for a year. A flat cutoff was right at one set a night and wrong
-   * at one an hour -- it would have held 720 directories, and 720 uploads to
-   * the firm's bucket, to answer a question nobody asks about 3am last Tuesday.
+   * everything for two days, then one a day for the retention window, then
+   * nothing. A flat cutoff was wrong at one snapshot an hour -- it would have
+   * held 720 directories, and 720 uploads to the firm's bucket, to answer a
+   * question nobody asks about 3am last Tuesday. Thinning to one a day fixes
+   * that without a third tier the offsite rule cannot express.
    */
   describe('the shape it keeps', () => {
     const now = Date.UTC(2026, 8, 11, 12, 0, 0)
@@ -195,12 +199,15 @@ describe('retention', () => {
       expect(keepMany.has('set-day6-late')).toBe(false)
     })
 
-    it('keeps one a month beyond the daily window', () => {
+    it('keeps nothing beyond the retention window', () => {
       /*
-       * Explicit dates, not day-offsets. Two sets in the same month is the
-       * case under test, and "sixty days ago" and "seventy-five days ago" are
-       * in different months -- which is a fact about the calendar that a test
-       * should not be quietly asserting.
+       * Explicit dates, not day-offsets, because "sixty days ago" and
+       * "seventy-five days ago" landing in different months is a fact about
+       * the calendar that a test should not assert by accident.
+       *
+       * These three used to survive as monthly keepers. Now the window is the
+       * whole horizon: past it, only the newest-three floor keeps anything, and
+       * that floor is already spent on the three recent sets here.
        */
       const on = (year: number, month: number, day: number, tag: string) =>
         at(now - Date.UTC(year, month - 1, day, 12, 0, 0), tag)
@@ -213,11 +220,10 @@ describe('retention', () => {
         on(2026, 6, 5, 'june'),
       ]
       const keep = kept(sets)
-      expect(keep.has('set-june')).toBe(true)
-      // Two in July: the older one is the keeper, because the useful copy of a
-      // period is the one taken before its work rather than after it.
-      expect(keep.has('set-july-early')).toBe(true)
-      expect(keep.has('set-july-late')).toBe(false)
+      for (const tag of ['june', 'july-early', 'july-late']) {
+        expect(keep.has(`set-${tag}`), tag).toBe(false)
+      }
+      expect(keep.size).toBe(3)
     })
 
     it('never prunes everything, however old the newest is', () => {
