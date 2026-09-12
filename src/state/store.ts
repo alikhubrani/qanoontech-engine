@@ -87,7 +87,46 @@ const settingsSchema = z.object({
    * module holds, typed once, under that module's configuration.
    */
   backupOffsiteEnabled: z.boolean().default(false),
+  /**
+   * Where the second copy goes.
+   *
+   * Drive came first and stays the default so no existing deployment changes
+   * under its firm. S3 is for object storage -- Cloudflare R2 is what this was
+   * built and tested against -- and is the better answer where a firm has it:
+   * a bucket takes lifecycle rules and object lock, which a Shared Drive
+   * cannot, and object lock is the only thing on either side that defends a
+   * backup against ransomware or against this engine being compromised.
+   */
+  backupOffsiteProvider: z.enum(['drive', 's3']).default('drive'),
   backupOffsiteDriveId: z.string().default(''),
+  /**
+   * For R2: `https://<account id>.r2.cloudflarestorage.com`. Any S3-compatible
+   * endpoint works; nothing here is Cloudflare-specific except the advice.
+   */
+  backupS3Endpoint: z.string().default(''),
+  backupS3Bucket: z.string().default(''),
+  /**
+   * `auto` for R2, which has no regions but needs one in the credential scope
+   * because Signature Version 4 has nowhere to put "none".
+   */
+  backupS3Region: z.string().default('auto'),
+  /** Optional key prefix, so one bucket can hold more than one deployment. */
+  backupS3Prefix: z.string().default(''),
+  /**
+   * Where the engine writes when something is wrong and nobody is looking.
+   *
+   * Empty means nothing is sent, which is the state a firm's backups were in
+   * when they stopped for three days: every screen said green because nothing
+   * had failed -- the schedule had simply stopped being asked, and no screen
+   * was open anyway. A panel only shouts at somebody already looking at it.
+   *
+   * The engine sends this itself, over the SMTP credentials it already holds
+   * and already renders into the mailer. Deliberately not through the
+   * application's outbox: that table is the application's, its shape is the
+   * application's to change, and a warning that needs the application working
+   * goes quiet at exactly the moment it is worth having.
+   */
+  alertEmail: z.string().default(''),
 })
 
 const stateSchema = z.object({

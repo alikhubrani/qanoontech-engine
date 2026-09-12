@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 import { loadSecrets, loadState, stateDir } from '../state/store.js'
-import { DriveClient } from './drive.js'
+import { offsiteStore, type OffsiteStore } from './store.js'
 import { BACKUPS_DIR, listBackups } from './service.js'
 
 /**
- * The offsite copy: every backup set, again, in the firm's own Shared Drive.
+ * The offsite copy: every backup set, again, somewhere that is not this box.
  *
  * The rules it lives by, from the design:
  *  - a failed upload never fails the backup — it is recorded, retried on the
@@ -20,7 +20,6 @@ import { BACKUPS_DIR, listBackups } from './service.js'
  *    ordinary restore applies — one restore path, not two.
  */
 
-const ROOT_FOLDER = 'QanoonTech Backups'
 const OFFSITE_FILE = 'offsite.json'
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/
 
@@ -42,29 +41,20 @@ function writeOffsite(id: string, record: OffsiteRecord, dir: string): void {
   writeJsonAtomic(join(dir, BACKUPS_DIR, id, OFFSITE_FILE), record)
 }
 
-/** The configured client, or null with the reason the panel should show. */
+/**
+ * The configured store, or null with the reason the panel should show.
+ *
+ * The selection moved to `store.ts` when R2 arrived: this module used to build
+ * a `DriveClient` itself and speak folders at it, which is why adding a second
+ * destination meant a second copy of everything below. It now knows only that
+ * something takes a key and some bytes.
+ */
 export function offsiteClient(
   dir = stateDir(),
   fetcher: typeof fetch = fetch,
-): { client: DriveClient | null; reason?: string } {
-  const settings = loadState(dir).settings
-  if (!settings.backupOffsiteEnabled) return { client: null, reason: 'off' }
-  if (!settings.backupOffsiteDriveId) {
-    return { client: null, reason: 'No Shared Drive ID is set.' }
-  }
-  const key = loadSecrets(dir)['GOOGLE_SERVICE_ACCOUNT_KEY']
-  if (!key) {
-    return {
-      client: null,
-      reason:
-        'No service account key is stored. Enter it under the Drive mirror module — the same key serves both.',
-    }
-  }
-  try {
-    return { client: DriveClient.fromRawKey(key, settings.backupOffsiteDriveId, fetcher) }
-  } catch (error) {
-    return { client: null, reason: (error as Error).message }
-  }
+): { client: OffsiteStore | null; reason?: string } {
+  const { store, reason } = offsiteStore(dir, fetcher)
+  return { client: store, ...(reason ? { reason } : {}) }
 }
 
 export interface OffsiteOutcome {
@@ -86,30 +76,30 @@ export async function uploadSet(
 
   const record = readOffsite(id, dir)
   try {
-    const root = await client.ensureFolder(ROOT_FOLDER, client.sharedDriveId)
-    const folder = await client.ensureFolder(id, root)
     const setDir = join(dir, BACKUPS_DIR, id)
 
     for (const name of readdirSync(setDir)) {
       if (name === OFFSITE_FILE) continue
-      // Skip what is already there at the same size — the retry after a
-      // partial upload should not pay for the parts that landed.
       const local = join(setDir, name)
       const { statSync } = await import('node:fs')
       const size = statSync(local).size
-      const existing = await client.findChild(name, folder)
-      if (existing && Number(existing.size ?? -1) === size) continue
-      if (existing) {
-        // A different size is a partial from a dead upload; Drive keeps both
-        // names happily, so clear it rather than double the file.
-        // (trash-by-id is a one-call PATCH; do it via ensure-then-replace.)
-      }
+      const key = `${id}/${name}`
+
+      /*
+       * Skip what is already there at the same size. A retry after a partial
+       * upload should not pay again for the parts that landed -- and on a
+       * metered connection in an office, that is the difference between a
+       * retry and an evening.
+       */
+      const existing = await client.stat(key)
+      if (existing && existing.size === size) continue
+
       const mime = name.endsWith('.json') ? 'application/json' : 'application/gzip'
-      await client.uploadFile(name, folder, local, mime)
+      await client.put(key, local, mime)
     }
 
     writeOffsite(id, { uploadedAt: new Date().toISOString(), attempts: record.attempts + 1, lastError: '' }, dir)
-    return { ok: true, detail: `Backup ${id} copied to Drive.` }
+    return { ok: true, detail: `Backup ${id} copied to ${client.label}.` }
   } catch (error) {
     const detail = (error as Error).message.slice(0, 300)
     writeOffsite(id, { ...record, attempts: record.attempts + 1, lastError: detail }, dir)
@@ -145,20 +135,23 @@ export async function listRemote(
   if (!client) return { ok: false, detail: reason ?? 'off' }
 
   try {
-    const root = await client.ensureFolder(ROOT_FOLDER, client.sharedDriveId)
-    const folders = await client.listChildren(root)
     const localIds = new Set(listBackups(dir).map((set) => set.id))
+    const objects = await client.list('')
 
-    const sets: RemoteSet[] = []
-    for (const folder of folders.filter((f) => ID_PATTERN.test(f.name)).sort((a, b) => b.name.localeCompare(a.name))) {
-      const files = await client.listChildren(folder.id)
-      sets.push({
-        name: folder.name,
-        files: files.length,
-        bytes: files.reduce((sum, file) => sum + Number(file.size ?? 0), 0),
-        local: localIds.has(folder.name),
-      })
+    /* Keys are `<set id>/<file>`, so the sets are the distinct first segments. */
+    const bySet = new Map<string, { files: number; bytes: number }>()
+    for (const object of objects) {
+      const id = object.key.split('/')[0] ?? ''
+      if (!ID_PATTERN.test(id)) continue
+      const entry = bySet.get(id) ?? { files: 0, bytes: 0 }
+      entry.files += 1
+      entry.bytes += object.size
+      bySet.set(id, entry)
     }
+
+    const sets: RemoteSet[] = [...bySet.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([name, entry]) => ({ name, files: entry.files, bytes: entry.bytes, local: localIds.has(name) }))
     return { ok: true, sets }
   } catch (error) {
     return { ok: false, detail: (error as Error).message.slice(0, 300) }
@@ -180,20 +173,21 @@ export async function fetchSet(
   if (!client) return { ok: false, detail: reason ?? 'off' }
 
   try {
-    const root = await client.ensureFolder(ROOT_FOLDER, client.sharedDriveId)
-    const folder = await client.findChild(name, root)
-    if (!folder) return { ok: false, detail: `No backup named ${name} in Drive.` }
+    const objects = await client.list(`${name}/`)
+    if (objects.length === 0) return { ok: false, detail: `No backup named ${name} in ${client.label}.` }
 
     const setDir = join(dir, BACKUPS_DIR, name)
     mkdirSync(setDir, { recursive: true })
-    for (const file of await client.listChildren(folder.id)) {
-      await client.downloadFile(file.id, join(setDir, file.name))
+    for (const object of objects) {
+      const file = object.key.slice(name.length + 1)
+      if (!file || file.includes('/')) continue
+      await client.get(object.key, join(setDir, file))
     }
     if (!existsSync(join(setDir, 'manifest.json'))) {
       return { ok: false, detail: `The set came down without its manifest; it will not list.` }
     }
     writeOffsite(name, { uploadedAt: new Date().toISOString(), attempts: 0, lastError: '' }, dir)
-    return { ok: true, detail: `Backup ${name} brought back from Drive.` }
+    return { ok: true, detail: `Backup ${name} brought back from ${client.label}.` }
   } catch (error) {
     return { ok: false, detail: (error as Error).message.slice(0, 300) }
   }
