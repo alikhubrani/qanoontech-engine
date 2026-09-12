@@ -21,6 +21,19 @@ import { BACKUPS_DIR, listBackups } from './service.js'
  */
 
 const OFFSITE_FILE = 'offsite.json'
+
+/**
+ * The two things the store holds, kept apart.
+ *
+ * A backup set is a moment; a document is a file that outlives every moment
+ * that mentions it. They were both at the root, which worked only because
+ * `listRemote` filtered the top level by the timestamp pattern and quietly
+ * ignored anything else — a rule nobody reading the bucket could see. Two
+ * prefixes say it instead, and listing a set no longer means listing every
+ * document to throw them away.
+ */
+const SETS = 'backups/'
+const DOCUMENTS = 'documents/'
 const ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/
 
 const offsiteRecordSchema = z.object({
@@ -83,7 +96,7 @@ export async function uploadSet(
       const local = join(setDir, name)
       const { statSync } = await import('node:fs')
       const size = statSync(local).size
-      const key = `${id}/${name}`
+      const key = `${SETS}${id}/${name}`
 
       /*
        * Skip what is already there at the same size. A retry after a partial
@@ -159,12 +172,12 @@ export async function listRemote(
 
   try {
     const localIds = new Set(listBackups(dir).map((set) => set.id))
-    const objects = await client.list('')
+    const objects = await client.list(SETS)
 
-    /* Keys are `<set id>/<file>`, so the sets are the distinct first segments. */
+    /* Keys are `backups/<set id>/<file>`, so the sets are the first segments. */
     const bySet = new Map<string, { files: number; bytes: number }>()
     for (const object of objects) {
-      const id = object.key.split('/')[0] ?? ''
+      const id = object.key.slice(SETS.length).split('/')[0] ?? ''
       if (!ID_PATTERN.test(id)) continue
       const entry = bySet.get(id) ?? { files: 0, bytes: 0 }
       entry.files += 1
@@ -196,13 +209,13 @@ export async function fetchSet(
   if (!client) return { ok: false, detail: reason ?? 'off' }
 
   try {
-    const objects = await client.list(`${name}/`)
+    const objects = await client.list(`${SETS}${name}/`)
     if (objects.length === 0) return { ok: false, detail: `No backup named ${name} in ${client.label}.` }
 
     const setDir = join(dir, BACKUPS_DIR, name)
     mkdirSync(setDir, { recursive: true })
     for (const object of objects) {
-      const file = object.key.slice(name.length + 1)
+      const file = object.key.slice(SETS.length + name.length + 1)
       if (!file || file.includes('/')) continue
       await client.get(object.key, join(setDir, file))
     }

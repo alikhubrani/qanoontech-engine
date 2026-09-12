@@ -173,6 +173,19 @@ export async function takeBackup(
     uploadsBytes = sizeOf(join(setDir, 'uploads.tar.gz'))
   }
 
+  /*
+   * What documents existed when this set was taken, so a restore of it can be
+   * faithful to that moment rather than pairing an old database with today's
+   * files. Best effort: a set whose index could not be written is still a set,
+   * and the database is the half that cannot be re-derived.
+   */
+  try {
+    const { listDocuments, writeDocumentIndex } = await import('./documents.js')
+    writeDocumentIndex(setDir, await listDocuments())
+  } catch {
+    /* No index. `restore` falls back to everything offsite, and says so. */
+  }
+
   const manifest: BackupManifest = {
     takenAt: new Date().toISOString(),
     trigger,
