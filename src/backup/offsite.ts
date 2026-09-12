@@ -133,6 +133,56 @@ export async function uploadSet(
 }
 
 /**
+ * Believe the bucket, not the note we wrote about it.
+ *
+ * `offsite.json` records that a set went out. Nothing re-checks it, so anything
+ * that removes an object afterwards — a person tidying the bucket, a lifecycle
+ * rule, a mistake — leaves a local file claiming a copy exists where none does,
+ * and `pendingOffsite` will never offer it again. The deployment reports itself
+ * safe and is not.
+ *
+ * That is the shape of nearly every failure this system has had: a record that
+ * asserts a safety property, trusted over the thing it describes. The manifest
+ * that stopped the schedule, the health check that stayed green while backups
+ * were dead, a size read from a header that was not there. The answer is the
+ * same each time — ask the thing itself.
+ *
+ * One list per call, and only ever *clears* a claim. A list that fails changes
+ * nothing: if the bucket is unreachable, "I could not see it" must never be
+ * recorded as "it is not there", or an outage would mark the whole archive for
+ * re-upload.
+ */
+export async function reconcileOffsite(
+  dir = stateDir(),
+  fetcher: typeof fetch = fetch,
+): Promise<{ checked: number; corrected: string[] }> {
+  const { client } = offsiteClient(dir, fetcher)
+  if (!client) return { checked: 0, corrected: [] }
+
+  let present: Set<string>
+  try {
+    present = new Set(
+      (await client.list(SETS))
+        .map((object) => object.key.slice(SETS.length).split('/')[0] ?? '')
+        .filter((id) => ID_PATTERN.test(id)),
+    )
+  } catch {
+    return { checked: 0, corrected: [] }
+  }
+
+  const corrected: string[] = []
+  const sets = listBackups(dir)
+  for (const set of sets) {
+    const record = readOffsite(set.id, dir)
+    if (!record.uploadedAt) continue
+    if (present.has(set.id)) continue
+    writeOffsite(set.id, { uploadedAt: '', attempts: 0, lastError: 'Not in the store; queued again.' }, dir)
+    corrected.push(set.id)
+  }
+  return { checked: sets.length, corrected }
+}
+
+/**
  * The next set to send: the newest if it has not gone, otherwise the oldest
  * that has not.
  *

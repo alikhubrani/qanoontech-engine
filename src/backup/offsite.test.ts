@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadState, saveSecrets, saveState } from '../state/store.js'
 import { DriveClient } from './drive.js'
-import { fetchSet, listRemote, pendingOffsite, readOffsite, uploadSet } from './offsite.js'
+import { fetchSet, listRemote, pendingOffsite, readOffsite, reconcileOffsite, uploadSet } from './offsite.js'
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const KEY_JSON = JSON.stringify({
@@ -276,5 +276,68 @@ describe('choosing what to send offsite', () => {
     saveState({ ...state, settings: { ...state.settings, backupOffsiteEnabled: false } }, dir)
     makeSet(dir, '2026-09-12T10-00-00Z', false)
     expect(pendingOffsite(dir)).toBeUndefined()
+  })
+})
+
+/**
+ * A record that says a copy exists is worth nothing if the object was removed.
+ *
+ * Four sets were deleted from a real bucket during testing; every local record
+ * still said `uploadedAt`, so nothing would ever have offered them again and
+ * the deployment reported itself safe while four of its copies did not exist.
+ */
+describe('reconciling what we believe against what is there', () => {
+  const markSent = (id: string) =>
+    writeFileSync(
+      join(dir, 'backups', id, 'offsite.json'),
+      JSON.stringify({ uploadedAt: '2026-09-12T09:00:00.000Z', attempts: 1, lastError: '' }),
+    )
+
+  it('clears a claim the store cannot support, so the set goes again', async () => {
+    localSet('2026-09-03T02-00-00Z')
+    const drive = fakeDrive()
+    await uploadSet('2026-09-03T02-00-00Z', dir, drive.fetcher)
+    expect(readOffsite('2026-09-03T02-00-00Z', dir).uploadedAt).not.toBe('')
+
+    // The object goes away behind the engine's back.
+    drive.uploads.clear()
+    drive.folders.clear()
+
+    const result = await reconcileOffsite(dir, drive.fetcher)
+    expect(result.corrected).toEqual(['2026-09-03T02-00-00Z'])
+    expect(readOffsite('2026-09-03T02-00-00Z', dir).uploadedAt).toBe('')
+    expect(pendingOffsite(dir)).toBe('2026-09-03T02-00-00Z')
+  })
+
+  it('leaves a claim alone when the store agrees', async () => {
+    localSet('2026-09-03T02-00-00Z')
+    const drive = fakeDrive()
+    await uploadSet('2026-09-03T02-00-00Z', dir, drive.fetcher)
+    const before = readOffsite('2026-09-03T02-00-00Z', dir).uploadedAt
+    const result = await reconcileOffsite(dir, drive.fetcher)
+    expect(result.corrected).toEqual([])
+    expect(readOffsite('2026-09-03T02-00-00Z', dir).uploadedAt).toBe(before)
+  })
+
+  /*
+   * The one that matters most. "I could not see it" must never be recorded as
+   * "it is not there" -- an outage would otherwise mark the whole archive for
+   * re-upload the moment the connection came back.
+   */
+  it('changes nothing when the store cannot be reached', async () => {
+    localSet('2026-09-03T02-00-00Z')
+    markSent('2026-09-03T02-00-00Z')
+    const broken = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch
+    const result = await reconcileOffsite(dir, broken)
+    expect(result.corrected).toEqual([])
+    expect(readOffsite('2026-09-03T02-00-00Z', dir).uploadedAt).not.toBe('')
+  })
+
+  it('does nothing while offsite is off', async () => {
+    const state = loadState(dir)
+    saveState({ ...state, settings: { ...state.settings, backupOffsiteEnabled: false } }, dir)
+    localSet('2026-09-03T02-00-00Z')
+    markSent('2026-09-03T02-00-00Z')
+    expect((await reconcileOffsite(dir)).corrected).toEqual([])
   })
 })
