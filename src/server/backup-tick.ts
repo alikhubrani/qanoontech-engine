@@ -120,7 +120,21 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
   }
 }
 
+/**
+ * When the schedule was armed, or 0 if it never was.
+ *
+ * Outside the loop on purpose. Everything that reports on backups is recorded
+ * *by* the tick, so a tick that never starts reports nothing and looks exactly
+ * like a tick with nothing to do. This is the one fact observable from outside
+ * it, and it is what lets a test — or a health check — tell those apart.
+ */
+let startedAt = 0
+export function backupLoopStartedAt(): number {
+  return startedAt
+}
+
 export function startBackupLoop(app: FastifyInstance, ctx: ServerContext): void {
+  startedAt = Date.now()
   const run = () => backupTick(ctx).catch((error) => app.log.error(error, 'backup tick failed'))
   void run()
   const timer = setInterval(run, TICK_MS)

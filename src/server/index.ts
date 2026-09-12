@@ -108,6 +108,22 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   engineRoutes(app, ctx)
   supportRoutes(app, ctx)
 
+  /*
+   * The schedule. Started unconditionally, and never again behind a flag.
+   *
+   * This call used to sit inside `if (options.licenceLoop ?? true) { ... }`
+   * alongside the licence loop, sharing a switch with something it has nothing
+   * to do with. Removing licensing removed the block and took this with it, and
+   * a firm's box ran for two hours with no schedule at all while reporting
+   * itself healthy.
+   *
+   * It reported healthy because `backup-stale` — the check written *because*
+   * backups once stopped for three days unnoticed — is recorded by the tick. A
+   * detector inside the thing it watches cannot report that thing being dead.
+   * `backupLoopStartedAt` exists so that fact is observable from outside.
+   */
+  startBackupLoop(app, ctx)
+
   const uiDir = options.uiDir ?? defaultUiDir()
   if (uiDir && existsSync(join(uiDir, 'index.html'))) {
     app.register(fastifyStatic, { root: uiDir })

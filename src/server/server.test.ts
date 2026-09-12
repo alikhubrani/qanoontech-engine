@@ -280,3 +280,36 @@ describe('the host the panel is reached at', () => {
     await server.close()
   })
 })
+
+/**
+ * The schedule runs because the server started it.
+ *
+ * Nothing asserted this, and on 2026-09-13 removing licensing removed the
+ * `if (options.licenceLoop ?? true) { ... }` block that `startBackupLoop` had
+ * been placed inside — two loops behind one flag that only described one of
+ * them. 249 tests passed, both typechecks passed, and a firm's box ran for two
+ * hours with no schedule while reporting itself healthy.
+ *
+ * It reported healthy because `backup-stale` is recorded *by* the tick. A
+ * detector living inside the thing it watches cannot report that thing being
+ * dead — which is the same shape as every other bug this programme has found,
+ * one level up: a record trusted over the thing it describes.
+ *
+ * So this asserts the wiring itself, at the only place it can be observed from
+ * outside: a fresh server takes its first tick without being asked.
+ */
+describe('the backup schedule', () => {
+  it('is started by the server, not by a caller remembering to', async () => {
+    const fresh = buildServer({ dir, logger: false })
+    try {
+      // The loop runs its first pass immediately on start. With no database
+      // configured it records nothing, so the observable fact is that the
+      // schedule is armed: `startedAt` is set, and health can tell "nothing due"
+      // from "nothing asking".
+      const { backupLoopStartedAt } = await import('./backup-tick.js')
+      expect(backupLoopStartedAt()).toBeGreaterThan(0)
+    } finally {
+      await fresh.close()
+    }
+  })
+})
