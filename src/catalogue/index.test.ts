@@ -2,14 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { CATALOGUE, REQUIRED_MODULE_IDS, resolve } from './index.js'
 
-const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !== undefined)
-
-const base = { enabled: [] as string[], config: {} as Record<string, unknown>, entitlements: ALL }
+const base = { enabled: [] as string[], config: {} as Record<string, unknown> }
 
 /**
  * The optional module these tests exercise resolution with: not required, so
- * it can be absent; entitled, so the licence can refuse it; and carrying both
- * mandatory configuration and defaults, so an invalid form and an incomplete
+ * it can be absent; and carrying both mandatory configuration and defaults, so an invalid form and an incomplete
  * one are different failures. This used to be the Drive mirror, which was
  * retired with Google Drive.
  */
@@ -41,25 +38,17 @@ describe('resolve', () => {
     expect(result.problems.some((p) => p.code === 'unknown-module')).toBe(true)
   })
 
-  it('refuses an optional module the licence does not entitle', () => {
-    const result = resolve({
-      ...base,
-      enabled: ['email'],
-      config: { email: VALID_EMAIL },
-      entitlements: [],
-    })
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const problem = result.problems.find((p) => p.code === 'missing-entitlement')
-    expect(problem?.moduleId).toBe('email')
-  })
-
-  it('deploys the system itself without any entitlement', () => {
-    // A licensed deployment is entitled to the system; the licence gates what
-    // is *added* to it. If this ever fails, an expired licence stops being an
-    // enforcement decision and starts being an inability to render at all.
-    const result = resolve({ ...base, entitlements: [] })
+  it('deploys every module in the catalogue, required or not', () => {
+    /*
+     * Optional modules used to declare a licence entitlement and be refused
+     * without it. Licensing was removed on 2026-09-12 — see
+     * docs/archive-licence-implementation.md — so "optional" now means only
+     * that a firm chooses whether to run it, never that it may be withheld.
+     */
+    const result = resolve({ ...base, enabled: ['email'], config: { email: VALID_EMAIL } })
     expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.modules.map((m) => m.module.id)).toContain('email')
   })
 
   it('applies a module’s configuration defaults', () => {
@@ -93,7 +82,6 @@ describe('resolve', () => {
       ...base,
       enabled: ['email', 'tunnel', 'nonsense'],
       config: { email: {} },
-      entitlements: [],
     })
     expect(result.ok).toBe(false)
     if (result.ok) return
@@ -111,13 +99,6 @@ describe('the catalogue itself', () => {
     const ids = new Set(CATALOGUE.map((m) => m.id))
     for (const module of CATALOGUE) {
       for (const dependency of module.requires) expect(ids).toContain(dependency)
-    }
-  })
-
-  it('entitles every optional module and no required one', () => {
-    for (const module of CATALOGUE) {
-      if (module.required) expect(module.entitlement).toBeUndefined()
-      else expect(module.entitlement).toBeTruthy()
     }
   })
 
@@ -152,14 +133,6 @@ describe('configuration a module does not require', () => {
 describe('the email module', () => {
   const email = CATALOGUE.find((m) => m.id === 'email')!
   const configured = { smtpHost: 'smtp.example.com', fromAddress: 'noreply@example.com' }
-
-  it('needs its own entitlement, like every optional module', () => {
-    const result = resolve({ ...base, enabled: ['email'], config: { email: configured }, entitlements: [] })
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    const problem = result.problems.find((p) => p.code === 'missing-entitlement')
-    expect(problem?.moduleId).toBe('email')
-  })
 
   it('needs a host and a sender, and nothing else', () => {
     expect(email.config.safeParse({}).success).toBe(false)

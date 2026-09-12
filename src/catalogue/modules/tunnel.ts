@@ -38,7 +38,6 @@ export const tunnel = defineModule({
   summary: 'The only inbound path. Staff reach the system through Cloudflare One.',
   required: false,
   defaultEnabled: false,
-  entitlement: 'module.tunnel',
   // Pinned rather than versioned: it is not our image and does not move with
   // our releases. `latest` here is a known wart — a `pull` can silently change
   // it — and it should become a digest once we have tested one.

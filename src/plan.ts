@@ -3,7 +3,6 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { resolve as resolveCatalogue, type Problem } from './catalogue/index.js'
 import { composeFilePath } from './docker/index.js'
-import { currentEntitlements } from './licence/index.js'
 import { render, type RenderProblem } from './render/compose.js'
 import { loadSecrets, loadState, stateDir } from './state/store.js'
 
@@ -11,7 +10,7 @@ import { loadSecrets, loadState, stateDir } from './state/store.js'
  * State on disk becomes a compose file, or the reasons it cannot.
  *
  * The two halves are kept apart on purpose. Resolution answers "may this be
- * deployed" — dependencies, entitlements, configuration. Rendering answers
+ * deployed" — dependencies and configuration. Rendering answers
  * "what does it look like" and can still refuse, but only over things
  * resolution cannot see, like a missing secret. Neither decides what the other
  * decides.
@@ -25,15 +24,9 @@ export async function buildPlan(dir = stateDir()): Promise<PlanResult> {
   const state = loadState(dir)
   const secrets = loadSecrets(dir)
 
-  const licence = await currentEntitlements(dir)
-  if (!licence.ok) {
-    return { ok: false, problems: [licence.problem] }
-  }
-
   const resolution = resolveCatalogue({
     enabled: state.enabled,
     config: state.config,
-    entitlements: licence.entitlements,
   })
 
   if (!resolution.ok) {

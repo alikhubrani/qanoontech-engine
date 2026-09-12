@@ -3,7 +3,6 @@ import { gzipSync } from 'node:zlib'
 import type { FastifyInstance } from 'fastify'
 import { listBackups } from '../../backup/service.js'
 import * as docker from '../../docker/index.js'
-import { currentLicence } from '../../licence/index.js'
 import { runPreflight } from '../../preflight/index.js'
 import { loadSecrets, loadState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
@@ -15,7 +14,7 @@ import { listServices } from './services.js'
  * send it.
  *
  * Collected: service states, bounded logs, the generated compose file, the
- * deployment state, preflight, licence standing, backup inventory, the audit
+ * deployment state, preflight, backup inventory, the audit
  * log. Never collected: anything under uploads, any database row, any secret.
  *
  * One gzipped JSON document rather than a tarball, on purpose: we are the
@@ -98,8 +97,6 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
       composeFile = '(no rendered compose file)'
     }
 
-    const licence = await currentLicence(dir)
-
     const bundle = {
       generatedAt: new Date().toISOString(),
       engineVersion: ctx.engineVersion,
@@ -112,7 +109,6 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
         // live in the secret store. Redaction still walks all of it.
         config: state.config,
       }),
-      licence: { standing: licence.standing, message: licence.message },
       services,
       logs,
       composeFile,

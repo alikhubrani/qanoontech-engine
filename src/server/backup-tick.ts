@@ -9,11 +9,11 @@ import { loadState } from '../state/store.js'
 import type { ServerContext } from './context.js'
 
 /**
- * The backup loop. Same shape as the licence loop, same reasoning: the inputs
- * are on disk and the decision is a pure function, so a container recreated
- * on every update loses nothing. A busy flag keeps the tick from stacking a
- * second dump behind a slow one; it is in memory because the thing it guards
- * — a running helper container — dies with the process anyway.
+ * The backup loop. The inputs are on disk and the decision is a pure
+ * function, so a container recreated on every update loses nothing. A busy
+ * flag keeps the tick from stacking a second dump behind a slow one; it is in
+ * memory because the thing it guards — a running helper container — dies with
+ * the process anyway.
  */
 
 /*

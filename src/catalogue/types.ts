@@ -139,12 +139,6 @@ export interface ModuleDefinition<TConfig = void> {
   readonly required: boolean
   readonly defaultEnabled: boolean
 
-  /**
-   * Licence entitlement that must be present to enable this. Required modules
-   * carry none — a licensed deployment is entitled to the system itself, and
-   * the licence gates what is *added* to it.
-   */
-  readonly entitlement?: string
 
   readonly image: ImageSource
   readonly cost: ResourceCost

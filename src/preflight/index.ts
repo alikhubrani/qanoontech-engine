@@ -2,7 +2,6 @@ import { statfs } from 'node:fs/promises'
 import { totalmem } from 'node:os'
 import { CATALOGUE } from '../catalogue/index.js'
 import * as docker from '../docker/index.js'
-import { currentLicence, LICENCE_DISABLED_NOTE, LICENCE_ENFORCED } from '../licence/index.js'
 import { probeRegistry, storedRegistryAuth } from '../registry.js'
 import { loadState, stateDir } from '../state/store.js'
 
@@ -160,30 +159,12 @@ export async function runPreflight(dir = stateDir()): Promise<CheckResult[]> {
               id: 'clock',
               title: 'Clock',
               status: 'warn',
-              detail: `This box's clock is ${Math.round(skew / 60_000)} minutes off. Licence and session validity depend on it; fix NTP.`,
+              detail: `This box's clock is ${Math.round(skew / 60_000)} minutes off. Session validity and backup ids depend on it; fix NTP.`,
             }
           : { id: 'clock', title: 'Clock', status: 'pass', detail: 'In step with the registry.' },
       )
     }
   }
-
-  // -- licence --------------------------------------------------------------
-  const licence = await currentLicence(dir)
-  const licenceGood = licence.standing === 'ok' || licence.standing === 'grace'
-  results.push({
-    id: 'licence',
-    title: 'Licence',
-    /*
-     * A warning and not a failure while licensing is switched off, because a
-     * failure blocks the deploy -- see licence/switch.ts.
-     *
-     * Not a pass either. "No licence installed" stays true whatever the switch
-     * says, and a check that reports it as fine is worse than one that blocks:
-     * it would have to be un-lied-to when licensing comes back.
-     */
-    status: licenceGood ? 'pass' : LICENCE_ENFORCED ? 'fail' : 'warn',
-    detail: licenceGood ? licence.message : `${licence.message} ${LICENCE_DISABLED_NOTE}`,
-  })
 
   // -- is this actually a fresh install? ------------------------------------
   if (daemon.code === 0) {

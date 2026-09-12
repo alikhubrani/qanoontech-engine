@@ -9,7 +9,7 @@ import { defineModule } from '../types.js'
  * core feature of a legal document system, and once Chromium left the
  * application image the application cannot produce a PDF without this. It is a
  * hard dependency of a core feature — nginx, not OCR — so it is always
- * deployed, carries no entitlement, and cannot be turned off.
+ * deployed and cannot be turned off.
  *
  * **It now receives documents the firm uploaded**, not only HTML this system
  * generated. Word-native templates mean a `.docx` a person authored elsewhere

@@ -1,6 +1,6 @@
 # QanoonTech Engine — design
 
-**Status: all five phases built and proven on the staging box (2026-09-02). Remaining: the licence service (separate repository) and the OCR module image (application-repository work). The offsite backup copy is built and running on R2; the Drive mirror was retired on 2026-09-12 — see below.** This document is the decision
+**Status: all five phases built and proven on the staging box (2026-09-02). Remaining: the OCR module image (application-repository work). Licensing was removed from the engine on 2026-09-12. The offsite backup copy is built and running on R2; the Drive mirror was retired on 2026-09-12 — see below.** This document is the decision
 record and the plan. Where it states a decision, that decision was made
 deliberately and the alternative is written down next to it, so that changing
 course later is an argument with a known cost rather than a rediscovery.
@@ -12,7 +12,7 @@ course later is an argument with a known cost rather than a rediscovery.
 The engine is the control plane for a QanoonTech deployment. It is the only
 thing a firm's box needs before it has anything else: it installs QanoonTech,
 updates it, configures it, turns optional modules on and off, takes and restores
-backups, and enforces the licence.
+backups.
 
 It is not part of the application. It never serves user traffic, never reads a
 client document, and never runs SQL against the firm's database. Everything it
@@ -20,7 +20,7 @@ does is deployment state — which containers exist, what version they are, what
 credentials they hold, whether they are healthy.
 
 **One box, one firm, one engine.** There is no multi-tenancy here. The
-multi-firm surface is the licence service, which is a separate component and
+multi-firm surface was the licence service, a separate component and
 runs on our side, not theirs.
 
 ### The line, stated once
@@ -65,7 +65,7 @@ Our module catalogue carries the same idea: a module that cannot describe its
 own configuration cannot be shipped.
 
 **[Replicated KOTS](https://docs.replicated.com/intro-kots)** — the reference
-for what an on-prem admin console is expected to contain: licence verification,
+for what an on-prem admin console is expected to contain:
 a configuration screen, **preflight checks** before install, version history,
 and **support bundles** with redaction on by default. Preflight and support
 bundles are both adopted; see [Diagnostics](#diagnostics).
@@ -95,7 +95,6 @@ definition:
   defaultEnabled: false,
   cost: { image: '~2 GB', memory: '2G', cpus: '2' },
   requires: ['app'],
-  entitlement: 'module.ocr',      // licence key that must be present
   config: OcrConfigSchema,        // validated before the module can start
   volumes: [...],
   health: { ... },
@@ -269,103 +268,33 @@ that was set to Drive from failing to boot on the release that removes it.
 
 ---
 
-## Licensing
+## Licensing — removed 2026-09-12
 
-Three layers, each answering a different question. They are independent on
-purpose: no single failure removes all commercial control, and no single failure
-takes a firm down.
+This section described a three-layer model: a signed Ed25519 licence saying what
+is enabled and until when, a heartbeat asking whether it had been revoked, and
+enforcement acting on the verdict. It was built, and it worked.
 
-| layer | question | mechanism |
-| --- | --- | --- |
-| registry credential | may this firm **obtain** software? | per-firm GHCR token, `read:packages` |
-| signed licence | **what** is enabled, and until when? | Ed25519-signed licence, verified offline |
-| heartbeat | has this been **revoked**? | periodic call to the licence service |
+It is gone from the engine. `LICENCE_ENFORCED` had been `false` for some time —
+everything ran except the part that acted — so 879 lines plus touches in
+nineteen files were computing a conclusion nothing used, and a single-tenant
+product installed by its own author was carrying a per-deployment token
+ceremony. Every module in the catalogue is now available to every deployment;
+`optional` means a firm chooses whether to run it, never that it can be
+withheld.
 
-### The licence
+The full design, the reasoning behind each decision, and what bringing it back
+would require are in
+[`archive-licence-implementation.md`](./archive-licence-implementation.md). The
+wire format is in
+[`archive-licence-protocol.md`](./archive-licence-protocol.md). The signing
+service (`qanoontech-licence`) is untouched and still holds the key pair, and
+both boxes still hold valid tokens, so the way back does not start from nothing.
 
-A licence is an Ed25519-signed document — firm id, issue and expiry dates,
-entitled module ids, seat limit, licence id. The engine carries the public key
-and verifies it locally. No network call is required to *use* a licence, which
-means our infrastructure being down never prevents a firm from working.
+One line from it is worth keeping in front of whoever reads this file, because
+it is a rule about more than licensing:
 
-**Format: PASETO `v4.public`, not JWT.** Both sign with Ed25519; the difference
-is that JWT lets the token name its own algorithm, and that choice is the
-source of its two classic forgeries (`alg: none`, HMAC/RSA confusion). PASETO
-removes the choice — the version *is* the algorithm — and its stated fit is
-exactly ours: one issuer, one verifier, both under our control.
+> Stored conclusions are conclusions that can disagree with their inputs.
 
-The format has to be right on the first release: it is the one thing that cannot
-be changed retroactively across boxes already deployed. Version the payload from
-day one.
-
-**The grace clock must survive a clock change.** Thirty days measured against
-the system clock is thirty days an operator can extend forever by setting the
-clock back. The engine keeps a monotonic high-water mark of the latest time it
-has ever observed; when the system clock is behind that mark, the clock has
-been moved, and grace is counted against the mark rather than the clock. Time
-that has been seen has elapsed, whatever the clock now claims.
-
-Signing keys live in our infrastructure and never in this repository. The public
-key is compiled into the engine image.
-
-### The heartbeat, and enforcement
-
-**Decision: heartbeat required; enforcement is hard.** The engine calls the
-licence service periodically. Sustained failure, past grace, stops the firm's
-system.
-
-This was chosen with the alternative on the table. The argument against is
-recorded here because a future reader deserves it: hard enforcement makes our
-licence service a hard dependency of a law firm's production system, and the
-industry has moved away from it —
-[cutting access immediately](https://keyforge.dev/blog/perpetual-fallback) "is
-the simplest implementation, but it produces the worst outcome." The mitigations
-below exist because that argument is real, and they are not optional garnish.
-
-**Grace: 30 days, with escalating warnings from the first missed check.**
-
-```
-day 0    missed heartbeat   →  engine Overview shows it
-day 7                       →  banner in the app, administrators only
-day 14                      →  banner for every user
-day 21                      →  daily modal, countdown
-day 30                      →  enforcement
-```
-
-Thirty days survives a tunnel outage, a Cloudflare incident, our own server
-being down, and a two-week Eid closure. The point of the window is that
-enforcement should only ever fire on genuine non-payment, never on an outage.
-
-**What enforcement does:**
-
-```
-STOPPED                 STILL RUNNING
-  app                     postgres      data intact
-  nginx                   engine        licence screen, accepts a new licence
-  optional modules        backups       nightly copies continue
-                          restore       works
-                          export        works
-```
-
-The firm cannot use the system. The firm can still get their records out. That
-line is deliberate and must not move: withholding a client's own files is a
-different act from suspending access to software, and in the Saudi legal market
-it is the kind of dispute that ends a vendor. It also costs nothing as
-leverage — a firm that cannot work will call.
-
-**Offline override.** We must be able to issue a signed, time-boxed licence over
-the phone that clears enforcement without a network call. A firm whose
-enforcement fired for a reason that turns out to be ours needs a fix in minutes,
-not a support ticket.
-
-### Licence service
-
-A separate component, on our side: issues and signs licences, records firms and
-entitlements, answers heartbeats, supports revocation. Designed now because the
-licence format depends on it; built later. It is deliberately *not* in this
-repository — this one is public, and it is the firm's software.
-
----
 
 ## Bootstrap
 

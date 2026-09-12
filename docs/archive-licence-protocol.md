@@ -1,5 +1,12 @@
 # Licence protocol
 
+**Archived 2026-09-12: licensing was removed from the engine.** The protocol
+below is no longer implemented there — see
+[`archive-licence-implementation.md`](./archive-licence-implementation.md) for
+what was removed and why. The signing service (`qanoontech-licence`) still
+exists and still holds the key pair, so this remains an accurate description of
+*that* side. Read it as history for the engine.
+
 **Status: implemented in the engine; the licence service that answers it is
 not yet built.** This document is the contract between the two, written from
 the engine's side, which is the side that cannot be changed retroactively

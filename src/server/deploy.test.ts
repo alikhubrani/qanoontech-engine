@@ -32,18 +32,12 @@ vi.mock('../docker/pull.js', () => ({
 
 import * as docker from '../docker/index.js'
 import { pullImages } from '../docker/pull.js'
-import {
-  LICENCE_VERSION,
-  licenceClaimsSchema,
-  signLicence,
-} from '../licence/format.js'
-import { setLicencePublicKeyForTesting } from '../licence/index.js'
-import { installLicence, readHeartbeat, writeHeartbeat } from '../licence/state.js'
 import { orderVersions } from '../registry.js'
 import {
   ensureGeneratedSecrets,
   loadSecrets,
   loadState,
+  saveState,
   saveSecrets,
 } from '../state/store.js'
 import { buildServer } from './index.js'
@@ -57,12 +51,10 @@ let app: FastifyInstance
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'engine-deploy-'))
-  setLicencePublicKeyForTesting(publicKey)
-  app = buildServer({ dir, logger: false, licenceLoop: false })
+  app = buildServer({ dir, logger: false })
 })
 
 afterEach(async () => {
-  setLicencePublicKeyForTesting(undefined)
   await app.close()
   rmSync(dir, { recursive: true, force: true })
   vi.clearAllMocks()
@@ -78,23 +70,6 @@ async function signIn(): Promise<string> {
   return String(Array.isArray(raw) ? raw[0] : raw).split(';')[0]!
 }
 
-async function licensed(): Promise<void> {
-  const claims = licenceClaimsSchema.parse({
-    v: LICENCE_VERSION,
-    licenceId: randomUUID(),
-    firmId: 'firm-1',
-    firmName: 'Al-Mithal Law Firm',
-    issuedAt: new Date(Date.now() - DAY).toISOString(),
-    expiresAt: new Date(Date.now() + 365 * DAY).toISOString(),
-    entitlements: ['module.email', 'module.tunnel'],
-    seats: 0,
-    heartbeat: { url: 'https://licence.example/hb', intervalHours: 24, graceDays: 30 },
-    override: false,
-  })
-  installLicence(await signLicence(claims, privateKey), dir)
-  writeHeartbeat({ ...readHeartbeat(dir), lastSuccessAt: Date.now(), lastAttemptAt: Date.now() }, dir)
-  saveSecrets(ensureGeneratedSecrets(loadSecrets(dir)).secrets, dir)
-}
 
 describe('settings', () => {
   it('patches what is sent and keeps the rest', async () => {
@@ -235,7 +210,6 @@ describe('versions', () => {
 
 describe('the deploy job', () => {
   it('runs render → validate → pull → apply and finishes ok', async () => {
-    await licensed()
     setVersion('1.0.2', dir)
     const jobs = new JobRunner(dir)
     expect(jobs.startDeploy()).toBe(true)
@@ -249,7 +223,6 @@ describe('the deploy job', () => {
   })
 
   it('refuses a second deploy while one runs', async () => {
-    await licensed()
     setVersion('1.0.2', dir)
     let release!: () => void
     vi.mocked(pullImages).mockImplementationOnce(
@@ -267,7 +240,6 @@ describe('the deploy job', () => {
   })
 
   it('a failed pull touches nothing running', async () => {
-    await licensed()
     setVersion('1.0.2', dir)
     vi.mocked(pullImages).mockResolvedValueOnce({
       ok: false,
@@ -281,13 +253,30 @@ describe('the deploy job', () => {
     expect(vi.mocked(docker.apply)).not.toHaveBeenCalled()
   })
 
-  it('an unlicensed deploy fails at render, before docker is involved', async () => {
+  it('a deploy that cannot be planned fails before docker is involved', async () => {
+    /*
+     * A module turned on and never configured, so resolution refuses.
+     *
+     * This used to be an unlicensed deploy, and removing licensing showed the
+     * test had been resting on it: with no licence gate a bare deployment
+     * deploys, because `JobRunner` generates its own secrets before planning.
+     * That is right — an engine that cannot install itself without a licence
+     * server was the thing being removed.
+     *
+     * What the test is for survives the change: whatever stops a deploy being
+     * *planned* must stop it before anything is pulled or recreated. A deploy
+     * that gets as far as touching containers and then fails is the one that
+     * leaves a firm with neither the old version nor the new.
+     */
+    const state = loadState(dir)
+    saveState({ ...state, enabled: ['email'], config: {} }, dir)
+
     const jobs = new JobRunner(dir)
     jobs.startDeploy()
     await vi.waitFor(() => expect(jobs.isRunning()).toBe(false))
     expect(jobs.current()!.ok).toBe(false)
-    expect(jobs.current()!.log).toContain('No licence')
     expect(vi.mocked(docker.pull)).not.toHaveBeenCalled()
+    expect(vi.mocked(docker.apply)).not.toHaveBeenCalled()
   })
 })
 
@@ -312,7 +301,6 @@ describe('the support bundle', () => {
   it('is valid JSON after redaction, with no stored secret value inside', async () => {
     // The first redactor broke the JSON it was redacting — found on the
     // staging box, on the first real download. This is that download.
-    await licensed()
     const cookie = await signIn()
     const { gunzipSync } = await import('node:zlib')
     const response = await app.inject({ method: 'GET', url: '/api/support-bundle', headers: { cookie } })
@@ -471,7 +459,6 @@ describe('the engine updating itself', () => {
 describe('per-module resource overrides', () => {
   it('reports the default and accepts an override that renders as the limit', async () => {
     const cookie = await signIn()
-    await licensed()
 
     const before = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
     const mailer = before.json().data.modules.find((m: { id: string }) => m.id === 'email')

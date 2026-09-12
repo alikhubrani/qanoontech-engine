@@ -61,7 +61,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
       .safeParse(request.body)
     if (!body.success) return refuse(reply, 400, 'A username and token are required.')
 
-    // Proven before it is stored, same as the licence: a bad credential is
+    // Proven before it is stored: a bad credential is
     // named now, not four steps later as `manifest unknown`.
     const probe = await probeRegistry(body.data)
     if (!probe.ok) return refuse(reply, 422, probe.detail)
@@ -141,7 +141,6 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
           summary: module.summary,
           required: module.required,
           cost: module.cost,
-          entitlement: module.entitlement ?? null,
           enabled: module.required || state.enabled.includes(module.id),
           config: state.config[module.id] ?? null,
           // The form is rendered from the same schema that validates — one

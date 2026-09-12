@@ -96,7 +96,6 @@ export const email = defineModule({
   summary: 'Sends reminders and hearing changes by email through the firm’s SMTP relay.',
   required: false,
   defaultEnabled: false,
-  entitlement: 'module.email',
   image: { kind: 'versioned', repository: 'ghcr.io/alikhubrani/qanoontech-mailer' },
   cost: { image: '~180 MB', memory: '256M', cpus: '0.25' },
   requires: ['app', 'postgres'],

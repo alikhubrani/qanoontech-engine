@@ -513,57 +513,6 @@ program
   })
 
 // ---------------------------------------------------------------------------
-// Licence
-// ---------------------------------------------------------------------------
-
-const licence = program.command('licence').description('The licence this deployment runs under')
-
-licence
-  .command('status')
-  .description('Standing, entitlements, grace and heartbeat')
-  .action(async () => {
-    const { currentLicence, readHeartbeat, isEnforced } = await import('./licence/index.js')
-    const status = await currentLicence()
-    console.log(`standing       ${status.standing}`)
-    console.log(`               ${status.message}`)
-    if (status.claims) {
-      console.log(`firm           ${status.claims.firmName}`)
-      console.log(`licence        ${status.claims.licenceId}`)
-      console.log(`expires        ${status.claims.expiresAt}`)
-      console.log(`entitlements   ${status.claims.entitlements.join(', ') || '(none)'}`)
-      console.log(`seats          ${status.claims.seats === 0 ? 'unlimited' : status.claims.seats}`)
-    }
-    const heartbeat = readHeartbeat()
-    if (heartbeat.lastSuccessAt) {
-      console.log(`heartbeat      last confirmed ${new Date(heartbeat.lastSuccessAt).toISOString()}`)
-    }
-    if (heartbeat.lastError) console.log(`               ${heartbeat.lastError}`)
-    if (isEnforced()) console.log('enforced       yes — the deployment has been stopped')
-  })
-
-licence
-  .command('install')
-  .description('Install a licence, read from stdin')
-  .action(async () => {
-    const { verifyLicence, licencePublicKey, installLicence, currentLicence, isEnforced, enforceClear } =
-      await import('./licence/index.js')
-    const token = readFileSync(0, 'utf8').trim()
-    if (token === '') fail('Nothing on stdin. Pipe the licence in.')
-
-    const verified = await verifyLicence(token, licencePublicKey())
-    if (!verified.ok) fail(verified.message)
-
-    const wasEnforced = isEnforced()
-    installLicence(token)
-    const status = await currentLicence()
-    console.log(`${status.standing}: ${status.message}`)
-    if (wasEnforced && (status.standing === 'ok' || status.standing === 'grace')) {
-      const cleared = await enforceClear()
-      console.log(cleared.ok ? `Restarted: ${cleared.detail}` : `Could not restart: ${cleared.detail}`)
-    }
-  })
-
-// ---------------------------------------------------------------------------
 // Deploying
 // ---------------------------------------------------------------------------
 

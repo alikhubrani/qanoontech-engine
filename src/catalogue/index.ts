@@ -37,7 +37,6 @@ export interface Problem {
   readonly code:
     | 'unknown-module'
     | 'required-disabled'
-    | 'missing-entitlement'
     | 'missing-dependency'
     | 'invalid-config'
     | 'dependency-cycle'
@@ -59,8 +58,6 @@ export interface ResolveInput {
   readonly enabled: readonly string[]
   /** Configuration per module id, as stored. Validated here, not before. */
   readonly config: Readonly<Record<string, unknown>>
-  /** Entitlements from the licence. An optional module needs its own. */
-  readonly entitlements: readonly string[]
 }
 
 /**
@@ -89,23 +86,13 @@ export function resolve(input: ResolveInput): Resolution {
   const wanted = new Set(input.enabled.filter((id) => findModule(id)))
   for (const id of REQUIRED_MODULE_IDS) wanted.add(id)
 
-  const entitlements = new Set(input.entitlements)
-  const selected: AnyModule[] = []
-
-  for (const module of CATALOGUE) {
-    if (!wanted.has(module.id)) continue
-
-    if (module.entitlement && !entitlements.has(module.entitlement)) {
-      problems.push({
-        moduleId: module.id,
-        code: 'missing-entitlement',
-        message: `'${module.title}' needs the entitlement '${module.entitlement}', which this licence does not carry.`,
-      })
-      continue
-    }
-
-    selected.push(module)
-  }
+  /*
+   * Every module in the catalogue is available to every deployment. Optional
+   * modules used to declare a licence entitlement and be refused without it;
+   * licensing was removed on 2026-09-12 (docs/archive-licence-implementation.md)
+   * and "optional" now means only that a firm chooses whether to run it.
+   */
+  const selected: AnyModule[] = CATALOGUE.filter((module) => wanted.has(module.id))
 
   const selectedIds = new Set(selected.map((m) => m.id))
 

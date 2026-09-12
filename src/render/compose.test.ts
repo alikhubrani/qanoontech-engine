@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
-import { CATALOGUE, resolve, type DeploymentSettings } from '../catalogue/index.js'
+import { resolve, type DeploymentSettings } from '../catalogue/index.js'
 import { render } from './compose.js'
 
-const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !== undefined)
 
 /**
  * The two optional modules these tests render with. `email` carries required
@@ -39,7 +38,7 @@ function renderWith(
   config: Record<string, unknown> = {},
   overrides: Partial<{ settings: DeploymentSettings; secrets: Record<string, string> }> = {},
 ) {
-  const resolution = resolve({ enabled, config, entitlements: ALL })
+  const resolution = resolve({ enabled, config })
   if (!resolution.ok) throw new Error(resolution.problems.map((p) => p.message).join('; '))
   return render({
     modules: resolution.modules,
@@ -225,7 +224,6 @@ describe('render', () => {
     const resolution = resolve({
       enabled: ['email'],
       config: { email: VALID_EMAIL },
-      entitlements: ALL,
     })
     if (!resolution.ok) throw new Error('unreachable')
     const result = render({
@@ -250,7 +248,7 @@ describe('render', () => {
   })
 
   it('refuses to render without a version', () => {
-    const resolution = resolve({ enabled: [], config: {}, entitlements: ALL })
+    const resolution = resolve({ enabled: [], config: {} })
     if (!resolution.ok) throw new Error('unreachable')
     const result = render({ modules: resolution.modules, version: '  ', settings, secrets })
     expect(result.ok).toBe(false)
@@ -382,7 +380,6 @@ describe('render', () => {
     const resolution = resolve({
       enabled: ['tunnel'],
       config: { tunnel: VALID_TUNNEL },
-      entitlements: ALL,
     })
     if (!resolution.ok) throw new Error('unreachable')
     const tunnelled = resolution.modules.find((m) => m.module.id === 'tunnel')!

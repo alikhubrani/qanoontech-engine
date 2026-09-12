@@ -11,11 +11,9 @@ import type { ServerContext } from './context.js'
 import { checkHost, checkOrigin, defaultAllowedHosts, refuse } from './guards.js'
 import { startBackupLoop } from './backup-tick.js'
 import { JobRunner } from './jobs.js'
-import { startLicenceLoop } from './licence-tick.js'
 import { backupRoutes } from './routes/backups.js'
 import { deployRoutes } from './routes/deploy.js'
 import { engineRoutes } from './routes/engine.js'
-import { licenceRoutes } from './routes/licence.js'
 import { overviewRoutes } from './routes/overview.js'
 import { SESSION_COOKIE, sessionRoutes } from './routes/session.js'
 import { serviceRoutes } from './routes/services.js'
@@ -37,7 +35,6 @@ export interface ServerOptions {
   /** Directory of built UI files. Omit to serve API only. */
   readonly uiDir?: string
   /** The periodic heartbeat-and-enforcement loop. Tests drive ticks by hand. */
-  readonly licenceLoop?: boolean
   readonly logger?: boolean
 }
 
@@ -87,15 +84,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   sessionRoutes(app, ctx)
   overviewRoutes(app, ctx)
   serviceRoutes(app, ctx)
-  licenceRoutes(app, ctx)
   deployRoutes(app, ctx, new JobRunner(dir))
   backupRoutes(app, ctx)
   engineRoutes(app, ctx)
   supportRoutes(app, ctx)
-  if (options.licenceLoop ?? true) {
-    startLicenceLoop(app, ctx)
-    startBackupLoop(app, ctx)
-  }
 
   const uiDir = options.uiDir ?? defaultUiDir()
   if (uiDir && existsSync(join(uiDir, 'index.html'))) {
