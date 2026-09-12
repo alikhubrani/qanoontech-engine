@@ -67,23 +67,6 @@ export interface Overview {
   audit: AuditEntry[]
 }
 
-export interface LicenceInfo {
-  standing: 'ok' | 'grace' | 'enforce' | 'missing' | 'invalid'
-  message: string
-  problem: string | null
-  graceUsedDays: number | null
-  graceDays: number | null
-  enforced: boolean
-  claims: {
-    firmName: string
-    licenceId: string
-    expiresAt: string
-    entitlements: string[]
-    seats: number
-    override: boolean
-  } | null
-  heartbeat: { lastSuccessAt: number | null; lastError: string | null }
-}
 
 export interface PreflightCheck {
   id: string

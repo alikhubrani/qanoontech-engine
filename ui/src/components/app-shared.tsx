@@ -1,15 +1,14 @@
 import type { ReactNode } from 'react'
 import {
   ArchiveIcon,
-  KeyRoundIcon,
-  LayoutDashboardIcon,
+    LayoutDashboardIcon,
   RocketIcon,
   ServerCogIcon,
   SettingsIcon,
 } from 'lucide-react'
 
 /** The engine's pages. One list; the sidebar and the header title read it. */
-export type Page = 'overview' | 'services' | 'deploy' | 'backups' | 'licence' | 'settings'
+export type Page = 'overview' | 'services' | 'deploy' | 'backups' | 'settings'
 
 export interface NavItem {
   page: Page
@@ -40,7 +39,6 @@ export const navGroups: NavGroup[] = [
   {
     label: 'Account',
     items: [
-      { page: 'licence', title: 'Licence', icon: <KeyRoundIcon /> },
       { page: 'settings', title: 'Settings', icon: <SettingsIcon /> },
     ],
   },

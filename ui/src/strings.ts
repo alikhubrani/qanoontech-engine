@@ -11,16 +11,10 @@ export const S = {
   productName: 'QanoonTech Engine',
 
   // Setup and sign-in
-  setupTitle: 'Set the operator password',
-  setupExplainer:
-    'This password controls the deployment: versions, services, backups. It is not a user account in QanoonTech.',
-  setupPasswordRule: 'At least 12 characters.',
-  setupSubmit: 'Set password and continue',
   loginTitle: 'Sign in',
-  loginExplainer: 'The operations panel for this deployment.',
+  loginExplainer: 'The operations panel for this deployment. Sign in with the Microsoft account this deployment permits.',
   loginFootnote: 'Sign-ins are recorded in the audit log.',
-  loginPassword: 'Operator password',
-  loginSubmit: 'Sign in',
+  loginSubmit: 'Sign in with Microsoft',
   logout: 'Sign out',
   operatorLabel: 'Operator',
 
@@ -64,7 +58,7 @@ export const S = {
   deployTitle: 'Deploy',
   registryTitle: 'Registry credential',
   registryExplainer:
-    'Issued per firm, with read:packages only. It is how the software is downloaded — and revoking it is how a licence ends completely.',
+    'Issued per firm, with read:packages only. It is how the software is downloaded.',
   registryUsername: 'Username',
   registryToken: 'Token',
   registryConfigured: (username: string) => `Configured as ${username}.`,
@@ -79,7 +73,7 @@ export const S = {
   settingsSave: 'Save settings',
   settingsSaved: 'Saved.',
   modulesTitle: 'Modules',
-  modulesExplainer: 'Optional, off by default, and the cost is stated. The licence decides which may be enabled.',
+  modulesExplainer: 'Optional, off by default, and the cost is stated.',
   moduleEnable: 'Enable',
   moduleDisable: 'Disable',
   moduleConfigure: 'Configure',
@@ -167,25 +161,6 @@ export const S = {
     'A redacted snapshot of this deployment — states, logs, configuration — for sending to support. No documents, no database rows, no secrets. Nothing is sent anywhere; you download it and decide.',
   supportDownload: 'Download support bundle',
 
-  // Licence
-  navLicence: 'Licence',
-  licenceTitle: 'Licence',
-  licenceFirm: 'Licensed to',
-  licenceId: 'Licence id',
-  licenceExpires: 'Expires',
-  licenceSeats: 'Seats',
-  licenceSeatsUnlimited: 'Unlimited',
-  licenceEntitlements: 'Modules entitled',
-  licenceHeartbeatOk: 'Last confirmed',
-  licenceInstallTitle: 'Install a licence',
-  licenceInstallExplainer:
-    'Paste the licence exactly as it was issued. Installing a new licence replaces the current one and clears any enforcement.',
-  licenceInstallSubmit: 'Install',
-  licenceInstalled: 'Licence installed.',
-  licenceOverrideBadge: 'override licence',
-  licenceEnforcedBanner:
-    'The deployment has been stopped over its licence. The data is intact and backups continue. Install a valid licence to bring it back.',
-
   // Settings
   navSettings: 'Settings',
   passwordTitle: 'Operator password',
@@ -224,15 +199,10 @@ export const S = {
 } as const
 
 export const auditEventLabels: Record<string, string> = {
-  setup: 'Operator password set',
   login: 'Signed in',
   'login-failed': 'Failed sign-in attempt',
-  'login-locked': 'Sign-in refused: locked out',
   logout: 'Signed out',
   'service-start': 'Service started',
   'service-stop': 'Service stopped',
   'service-restart': 'Service restarted',
-  'licence-installed': 'Licence installed',
-  'licence-enforced': 'Licence enforcement: deployment stopped',
-  'licence-cleared': 'Licence enforcement lifted: deployment restarted',
 }

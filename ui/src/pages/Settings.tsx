@@ -32,84 +32,19 @@ import {
 } from '@/components/ui/select'
 
 /**
- * The operator account. Changing the password signs every session out,
- * including this one — that is the point, and the page says so before the
- * button, not after.
+ * Settings.
+ *
+ * There is no password card any more: the panel has no password. Identity is
+ * Microsoft Entra's, and who may sign in is configured from a shell
+ * (`auth allow`, `auth redirect`) rather than from the page those settings
+ * would lock — configuring a lock from behind the door it locks is how a
+ * deployment gets locked out of itself.
  */
 export function Settings({ onSignedOut }: { onSignedOut: () => void }) {
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setError(null)
-    if (next !== confirm) {
-      setError(S.passwordMismatch)
-      return
-    }
-    setBusy(true)
-    try {
-      await api.post('/api/password', { current, next })
-      toast.success(S.passwordChanged)
-      onSignedOut()
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setBusy(false)
-    }
-  }
+  void onSignedOut
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>{S.passwordTitle}</CardTitle>
-          <CardDescription>{S.passwordExplainer}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="max-w-sm space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="pw-current">{S.passwordCurrent}</Label>
-              <Input
-                id="pw-current"
-                type="password"
-                value={current}
-                onChange={(event) => setCurrent(event.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pw-next">{S.passwordNew}</Label>
-              <Input
-                id="pw-next"
-                type="password"
-                value={next}
-                onChange={(event) => setNext(event.target.value)}
-                autoComplete="new-password"
-              />
-              <p className="text-xs text-muted-foreground">{S.setupPasswordRule}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pw-confirm">{S.passwordConfirm}</Label>
-              <Input
-                id="pw-confirm"
-                type="password"
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            {error && <ErrorNote>{error}</ErrorNote>}
-            <Button type="submit" disabled={busy || !current || !next || !confirm}>
-              {busy ? S.workingEllipsis : S.passwordSubmit}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
       <EngineCard />
     </div>
   )

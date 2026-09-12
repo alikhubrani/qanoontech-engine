@@ -1,5 +1,5 @@
 import { auditEventLabels, S } from '../strings'
-import type { LicenceInfo, Overview as OverviewData } from '../api'
+import type { Overview as OverviewData } from '../api'
 import { ErrorNote, StatusBadge } from '@/components/status'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -11,7 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-export function Overview({ data, licence }: { data: OverviewData; licence: LicenceInfo | null }) {
+export function Overview({ data }: { data: OverviewData }) {
   const unhealthy = data.services.filter(
     (service) => service.state === 'running' && service.health === 'unhealthy',
   )
@@ -21,16 +21,10 @@ export function Overview({ data, licence }: { data: OverviewData; licence: Licen
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat label={S.versionLabel} value={data.version} />
         <Stat label={S.engineVersionLabel} value={data.engineVersion} />
         <Stat label={S.addressLabel} value={`${data.bindAddress}:${data.appPort}`} />
-        <Stat
-          label={S.navLicence}
-          value={licence?.standing ?? '—'}
-          hint={licence?.claims ? `${S.licenceExpires} ${new Date(licence.claims.expiresAt).toLocaleDateString()}` : undefined}
-          tone={licence?.standing === 'ok' ? 'ok' : licence?.standing === 'grace' ? 'warn' : 'bad'}
-        />
       </div>
 
       {data.dockerError && (
