@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { pendingOffsite, uploadSet } from '../backup/offsite.js'
+import { pendingOffsite, reconcileOffsite, uploadSet } from '../backup/offsite.js'
 import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { backupHealth } from '../backup/health.js'
@@ -48,6 +48,18 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
     // The offsite copy of the newest set, until it lands. Retried here rather
     // than fired-and-forgotten at take time, so an outage during the night is
     // healed by the next tick rather than by the next backup.
+    /*
+     * Before choosing what to send, check that what we think went out is still
+     * there. A record saying a copy exists is worth nothing if the object was
+     * removed afterwards, and until this the engine would never look again.
+     */
+    const drift = await reconcileOffsite(ctx.dir)
+    if (drift.corrected.length > 0) {
+      ctx.audit.record('offsite-drift', {
+        detail: `${drift.corrected.length} set(s) recorded as copied are not in the store; queued again. Oldest: ${drift.corrected.at(-1)}`,
+      })
+    }
+
     const pending = pendingOffsite(ctx.dir)
     if (pending) {
       const sent = await uploadSet(pending, ctx.dir)
