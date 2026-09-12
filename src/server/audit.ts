@@ -39,6 +39,17 @@ export type AuditEvent =
   | 'module-secret-set'
   | 'deploy-started'
   | 'engine-update-started'
+  /*
+   * The backup system saying something about itself.
+   *
+   * `backup-stale` exists because its absence was the bug: a firm's backups
+   * stopped for three days and the trail held five `backup-taken` events and no
+   * failures, because nothing failed -- the schedule stopped being asked. A
+   * record of "nothing was taken and that is wrong" is the line that would have
+   * shown it.
+   */
+  | 'backup-stale'
+  | 'alert-sent'
   | 'backup-taken'
   | 'backup-failed'
   | 'backup-deleted'
