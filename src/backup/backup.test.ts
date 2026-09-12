@@ -125,7 +125,7 @@ describe('retention', () => {
    * everything for two days, then one a day for the retention window, then one
    * a month for a year. A flat cutoff was right at one set a night and wrong
    * at one an hour -- it would have held 720 directories, and 720 uploads to
-   * the firm's Drive, to answer a question nobody asks about 3am last Tuesday.
+   * the firm's bucket, to answer a question nobody asks about 3am last Tuesday.
    */
   describe('the shape it keeps', () => {
     const now = Date.UTC(2026, 8, 11, 12, 0, 0)
@@ -346,14 +346,15 @@ describe('redaction', () => {
 
   it('walks objects and masks by key, leaving the structure parseable', () => {
     const redacted = deepRedact({
-      config: { SETTINGS_ENCRYPTION_KEY: 'key-shaped-value', sharedDriveId: '0ABC' },
+      config: { SETTINGS_ENCRYPTION_KEY: 'key-shaped-value', smtpHost: 'smtp.example.com' },
       nested: [{ apiToken: 'tok' }],
     }) as Record<string, never>
     const text = JSON.stringify(redacted)
     expect(JSON.parse(text)).toBeTruthy()
     expect(text).not.toContain('key-shaped-value')
     expect(text).not.toContain('"tok"')
-    expect(text).toContain('0ABC')
+    // A value under a name that is not secret-shaped is left alone.
+    expect(text).toContain('smtp.example.com')
   })
 
   it('covers the real generated secret names by value', async () => {

@@ -130,7 +130,7 @@ program
     try {
       value = JSON.parse(json)
     } catch {
-      fail(`That is not valid JSON. Expected something like '{"sharedDriveId":"0A1b..."}'`)
+      fail(`That is not valid JSON. Expected something like '{"host":"smtp.example.com"}'`)
     }
 
     // Validated here as well as at resolve time, so a typo is refused when it
@@ -303,15 +303,10 @@ offsite
 
     const settings = loadState().settings
     console.log(`enabled    ${settings.backupOffsiteEnabled}`)
-    console.log(`provider   ${settings.backupOffsiteProvider}`)
-    if (settings.backupOffsiteProvider === 's3') {
-      console.log(`endpoint   ${settings.backupS3Endpoint || '(not set)'}`)
-      console.log(`bucket     ${settings.backupS3Bucket || '(not set)'}`)
-      console.log(`region     ${settings.backupS3Region}`)
-      if (settings.backupS3Prefix) console.log(`prefix     ${settings.backupS3Prefix}`)
-    } else {
-      console.log(`drive      ${settings.backupOffsiteDriveId || '(not set)'}`)
-    }
+    console.log(`endpoint   ${settings.backupS3Endpoint || '(not set)'}`)
+    console.log(`bucket     ${settings.backupS3Bucket || '(not set)'}`)
+    console.log(`region     ${settings.backupS3Region}`)
+    if (settings.backupS3Prefix) console.log(`prefix     ${settings.backupS3Prefix}`)
 
     const { store, reason } = offsiteStore()
     if (!store) {
@@ -347,7 +342,6 @@ offsite
         settings: {
           ...state.settings,
           backupOffsiteEnabled: true,
-          backupOffsiteProvider: 's3',
           backupS3Endpoint: endpoint.replace(/\/$/, ''),
           backupS3Bucket: bucket,
           backupS3Region: options.region,

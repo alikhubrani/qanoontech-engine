@@ -37,7 +37,6 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
         busy,
         offsiteConfig: {
           enabled: settings.backupOffsiteEnabled,
-          driveId: settings.backupOffsiteDriveId,
           ready: offsite.client !== null,
           reason: offsite.client === null && offsite.reason !== 'off' ? offsite.reason : null,
         },

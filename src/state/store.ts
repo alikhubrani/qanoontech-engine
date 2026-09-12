@@ -82,23 +82,23 @@ const settingsSchema = z.object({
   /** Where documents are already copied offsite, the local set can be the database alone. */
   backupIncludeUploads: z.boolean().default(true),
   /**
-   * The second copy, in the firm's own Google Shared Drive. Off until a firm
-   * turns it on; the service-account key is the same one the Drive-mirror
-   * module holds, typed once, under that module's configuration.
+   * The second copy, in object storage the firm controls. Off until a firm
+   * turns it on and supplies a bucket and a key pair.
+   *
+   * This used to offer a choice of destination -- a firm's Google Shared Drive
+   * or S3-compatible object storage -- and Drive was the default. Drive is
+   * retired: a bucket takes lifecycle rules and object lock, which a Shared
+   * Drive cannot, and object lock is the only thing on either side that
+   * defends a backup against ransomware or against this engine being
+   * compromised.
+   *
+   * `backupOffsiteProvider` and `backupOffsiteDriveId` are gone from this
+   * schema rather than deprecated in it. A state file still carrying them
+   * parses without complaint, because this object is not strict and silently
+   * drops what it does not name -- which is what keeps a deployment that was
+   * set to Drive from failing to boot on the release that removes it.
    */
   backupOffsiteEnabled: z.boolean().default(false),
-  /**
-   * Where the second copy goes.
-   *
-   * Drive came first and stays the default so no existing deployment changes
-   * under its firm. S3 is for object storage -- Cloudflare R2 is what this was
-   * built and tested against -- and is the better answer where a firm has it:
-   * a bucket takes lifecycle rules and object lock, which a Shared Drive
-   * cannot, and object lock is the only thing on either side that defends a
-   * backup against ransomware or against this engine being compromised.
-   */
-  backupOffsiteProvider: z.enum(['drive', 's3']).default('drive'),
-  backupOffsiteDriveId: z.string().default(''),
   /**
    * For R2: `https://<account id>.r2.cloudflarestorage.com`. Any S3-compatible
    * endpoint works; nothing here is Cloudflare-specific except the advice.

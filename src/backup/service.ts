@@ -10,7 +10,7 @@ import { loadSecrets, loadState, stateDir } from '../state/store.js'
  * A set is a directory named by its moment — `2026-09-02T19-30-00Z` — holding
  * a verified `database.sql.gz`, optionally `uploads.tar.gz`, and a manifest.
  * The name is the identity: it sorts, it says when, and it is the one thing a
- * firm recovering from Drive must not rename.
+ * firm recovering from the offsite copy must not rename.
  *
  * Everything here shells out to helper containers over whole files. Nothing
  * selects rows; the engine still holds no SQL connection.
@@ -213,7 +213,7 @@ const monthOf = (at: number): string => new Date(at).toISOString().slice(0, 7)
  *
  * A flat "older than N days" was right when a set was taken once a night. With
  * an hourly snapshot it would hold 720 of them for a month — every one a
- * directory, and every one an upload to the firm's Drive — to answer a question
+ * directory, and every one an upload to the firm's bucket — to answer a question
  * nobody asks about 3am six days ago.
  *
  * So: everything for two days, then one a day, then one a month. On the firm's

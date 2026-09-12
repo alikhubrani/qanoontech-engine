@@ -2,8 +2,8 @@
 
 **Status: implemented with this change.**
 
-The panel must never ask an operator for raw JSON. A module that needs a
-Shared Drive ID and a service-account key asks for exactly those two things,
+The panel must never ask an operator for raw JSON. A module that needs an SMTP
+host and a sender address asks for exactly those two things,
 by name, with help text — and the only way that stays true as modules are
 added is if the module *itself* is the description the form is rendered from.
 
@@ -87,8 +87,8 @@ What optional changes, exactly:
 
 ## Email: a module, not a setting
 
-`email` (`catalogue/modules/email.ts`) is the mailer container, modelled on
-the drive mirror: optional, off by default, entitled by `module.email`,
+`email` (`catalogue/modules/email.ts`) is the mailer container: optional, off
+by default, entitled by `module.email`,
 reading the application database (it drains an outbox table the application
 writes) and mounting no volume. It is a container rather than settings on the
 application because the application never holds SMTP credentials, never

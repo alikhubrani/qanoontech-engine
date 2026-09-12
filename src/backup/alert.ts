@@ -23,8 +23,8 @@ import type { BackupHealth } from './health.js'
  * renders `SMTP_HOST`, `SMTP_PORT` and `SMTP_USER` into that container — it
  * configures the firm's relay. It can use it.
  *
- * Hand-rolled rather than `nodemailer`, for the reason `drive.ts` hand-rolls a
- * JWT and `s3.ts` hand-rolls SigV4: this container is what has to work when
+ * Hand-rolled rather than `nodemailer`, for the reason `s3.ts` hand-rolls
+ * SigV4: this container is what has to work when
  * everything else does not, and one plaintext message over a relay we
  * configured ourselves is a small, closed problem. It speaks enough SMTP to
  * send one message and nothing more — no attachments, no HTML, no queue.

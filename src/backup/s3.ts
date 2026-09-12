@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 /**
  * S3, signed by hand, for Cloudflare R2.
  *
- * Dependency-free for the same reason `drive.ts` is: the AWS SDK is several
+ * Dependency-free deliberately: the AWS SDK is several
  * megabytes and a tree of transitive packages to make four HTTP calls, and this
  * container is the thing that has to still work when everything else does not.
  * Signature Version 4 is a documented recipe over `node:crypto` — four HMACs

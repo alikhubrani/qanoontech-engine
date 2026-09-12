@@ -6,6 +6,15 @@ const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !==
 
 const base = { enabled: [] as string[], config: {} as Record<string, unknown>, entitlements: ALL }
 
+/**
+ * The optional module these tests exercise resolution with: not required, so
+ * it can be absent; entitled, so the licence can refuse it; and carrying both
+ * mandatory configuration and defaults, so an invalid form and an incomplete
+ * one are different failures. This used to be the Drive mirror, which was
+ * retired with Google Drive.
+ */
+const VALID_EMAIL = { smtpHost: 'smtp.example.com', fromAddress: 'firm@example.com' }
+
 describe('resolve', () => {
   it('includes the required modules even when nothing was asked for', () => {
     const result = resolve(base)
@@ -16,13 +25,13 @@ describe('resolve', () => {
   })
 
   it('orders dependencies before the modules that need them', () => {
-    const result = resolve({ ...base, enabled: ['drive-mirror'], config: { 'drive-mirror': { sharedDriveId: 'abc' } } })
+    const result = resolve({ ...base, enabled: ['email'], config: { email: VALID_EMAIL } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const ids = result.modules.map((m) => m.module.id)
     expect(ids.indexOf('postgres')).toBeLessThan(ids.indexOf('app'))
     expect(ids.indexOf('app')).toBeLessThan(ids.indexOf('nginx'))
-    expect(ids.indexOf('app')).toBeLessThan(ids.indexOf('drive-mirror'))
+    expect(ids.indexOf('app')).toBeLessThan(ids.indexOf('email'))
   })
 
   it('refuses a module the catalogue does not define', () => {
@@ -35,14 +44,14 @@ describe('resolve', () => {
   it('refuses an optional module the licence does not entitle', () => {
     const result = resolve({
       ...base,
-      enabled: ['drive-mirror'],
-      config: { 'drive-mirror': { sharedDriveId: 'abc' } },
+      enabled: ['email'],
+      config: { email: VALID_EMAIL },
       entitlements: [],
     })
     expect(result.ok).toBe(false)
     if (result.ok) return
     const problem = result.problems.find((p) => p.code === 'missing-entitlement')
-    expect(problem?.moduleId).toBe('drive-mirror')
+    expect(problem?.moduleId).toBe('email')
   })
 
   it('deploys the system itself without any entitlement', () => {
@@ -54,19 +63,25 @@ describe('resolve', () => {
   })
 
   it('applies a module’s configuration defaults', () => {
-    const result = resolve({ ...base, enabled: ['drive-mirror'], config: { 'drive-mirror': { sharedDriveId: 'abc' } } })
+    const result = resolve({ ...base, enabled: ['email'], config: { email: VALID_EMAIL } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const mirror = result.modules.find((m) => m.module.id === 'drive-mirror')
-    // Only the id was given; the size limit is the schema's default.
-    expect(mirror?.config).toEqual({ sharedDriveId: 'abc', maxFileSizeBytes: 1_073_741_824 })
+    const mailer = result.modules.find((m) => m.module.id === 'email')
+    // Only the host and the sender were given; the port, the TLS mode and the
+    // authentication mode are the schema's defaults.
+    expect(mailer?.config).toEqual({
+      ...VALID_EMAIL,
+      smtpPort: 587,
+      smtpSecure: false,
+      authMode: 'basic',
+    })
   })
 
   it('refuses configuration that does not match the schema', () => {
     const result = resolve({
       ...base,
-      enabled: ['drive-mirror'],
-      config: { 'drive-mirror': { sharedDriveId: '' } },
+      enabled: ['email'],
+      config: { email: { ...VALID_EMAIL, smtpHost: '' } },
     })
     expect(result.ok).toBe(false)
     if (result.ok) return
@@ -76,8 +91,8 @@ describe('resolve', () => {
   it('collects every problem rather than stopping at the first', () => {
     const result = resolve({
       ...base,
-      enabled: ['email', 'drive-mirror', 'nonsense'],
-      config: { 'drive-mirror': {} },
+      enabled: ['email', 'tunnel', 'nonsense'],
+      config: { email: {} },
       entitlements: [],
     })
     expect(result.ok).toBe(false)
@@ -213,10 +228,10 @@ describe('the email module', () => {
 
 describe('a module turned on but never configured', () => {
   it('is told it needs configuring, not that an object was expected', () => {
-    const result = resolve({ ...base, enabled: ['drive-mirror'] })
+    const result = resolve({ ...base, enabled: ['email'] })
     expect(result.ok).toBe(false)
     if (result.ok) return
-    const problem = result.problems.find((p) => p.moduleId === 'drive-mirror')
+    const problem = result.problems.find((p) => p.moduleId === 'email')
     expect(problem?.message).toContain('has not been configured')
     expect(problem?.message).not.toContain('expected object')
   })

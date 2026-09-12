@@ -1,6 +1,6 @@
 # QanoonTech Engine — design
 
-**Status: all five phases built and proven on the staging box (2026-09-02). Remaining: the licence service (separate repository), the offsite backup copy, and the OCR / Drive-mirror module images (application-repository work).** This document is the decision
+**Status: all five phases built and proven on the staging box (2026-09-02). Remaining: the licence service (separate repository) and the OCR module image (application-repository work). The offsite backup copy is built and running on R2; the Drive mirror was retired on 2026-09-12 — see below.** This document is the decision
 record and the plan. Where it states a decision, that decision was made
 deliberately and the alternative is written down next to it, so that changing
 course later is an argument with a known cost rather than a rediscovery.
@@ -53,7 +53,7 @@ data*, and *its interface is not exposed publicly*. Its container definitions
 live in a declarative `containers.json` validated against a schema, and optional
 services (Talk, ClamAV, Collabora, Imaginary, fulltextsearch) are simply
 filtered out of that list when disabled. That filtering model is exactly what we
-want for PaddleOCR and the Drive mirror.
+want for PaddleOCR.
 
 What we did **not** take: AIO creates containers over the Docker API directly.
 See [Why generated compose](#why-generated-compose-and-not-the-docker-api).
@@ -206,7 +206,7 @@ have actually run" a true statement.
 
 This is the sentence to hold on to: **the application never stores a second copy
 of module state.** It discovers capability at runtime — OCR is available because
-the sidecar answers, the Drive mirror is on because it is reachable. The engine
+the sidecar answers. The engine
 starts a container; the application notices.
 
 The alternative — the engine writing a flag the application caches — is how a
@@ -233,50 +233,39 @@ ENGINE                              APPLICATION
 | `postgres` | database | required | pinned to a major version, never moved by an update |
 | `nginx` | reverse proxy | required | |
 | `ocr` | PaddleOCR sidecar | ~2 GB | today OCR is `tesseract` + `pdftoppm` **inside** the application container; this is a new sidecar, not a move |
-| `drive-mirror` | offsite document mirror | ~120 MB | extracted from the application's in-process worker; see below |
 | `email` | mailer: reminders and hearing changes over the firm's SMTP relay | ~180 MB | drains an outbox table the application writes; the application never holds SMTP credentials |
 | `tunnel` | Cloudflare tunnel | ~40 MB | the only inbound path |
 
-### Google Drive — one credential, two consumers
+### Google Drive — retired (2026-09-12)
 
-A firm wants one switch: "copy our things to our Google Drive." Behind it are
-two genuinely different jobs:
+This section described one switch — "copy our things to our Google Drive" —
+behind which sat two genuinely different jobs: a **document mirror** (thousands
+of small files, continuously, read back by the application per document) and
+the engine's **backup copy** (one set a night, read back by the engine as a
+whole during a restore). They shared a service-account key and nothing else,
+deliberately, because the backup exists to work when the application does not.
 
-| | document mirror | backup copy |
-| --- | --- | --- |
-| shape | thousands of small files, continuously | one large file a night |
-| needs | a job queue, retries, per-file state | a verified handoff at the end of one operation |
-| read back by | the application, per document | the engine, as a whole set, during a restore |
+Both are gone. The backup copy goes to S3-compatible object storage instead
+(`backup/s3.ts`, `backup/store.ts`), and the `drive-mirror` module and its
+container are removed from the catalogue.
 
-They must not be fused. The decisive reason is that **the backup exists to work
-when the application does not** — routing it through anything the application
-owns means that a broken app is also a broken backup, and a restore would depend
-on asking a container that may well be the reason you are restoring.
+**Why object storage won.** A bucket takes lifecycle rules and object lock; a
+Shared Drive takes neither, and object lock is the only thing on either side
+that defends a backup against ransomware or against this engine being
+compromised. Drive also cost a hand-rolled JWT, a folder tree walked per file
+to fake a flat keyspace, and an OAuth credential with a wider blast radius than
+a scoped bucket key.
 
-The resolution is that the *credential* is unified and the *runtime* is not:
+**What replaced the mirror.** Nothing, and that is the point: the mirror
+existed so the firm had a browsable second copy of their documents, and the
+engine now copies documents to the bucket itself, under `documents/`, next to
+`backups/`. One destination, one credential, one thing to check.
 
-```
-              Engine — the only place the key is typed
-                  service account key + shared drive id
-                            │
-              ┌─────────────┴──────────────┐
-              ▼                            ▼
-      engine's own backup copy      drive-mirror container
-      (pg_dump → Drive)             (secret injected at start)
-              │                            │
-              ▼                            ▼
-        firm's Shared Drive          firm's Shared Drive
-```
-
-One form, one switch, two paths that share a transport and nothing else. The
-engine keeps its copy of the key on its own volume; the mirror gets it injected
-as a secret. Neither depends on the other, and neither depends on the
-application's database or its encryption key.
-
-The mirror becoming its own container is the larger half of this and is
-scheduled accordingly — see [phase 5](#phasing). It fixes something real on the
-way: a Drive outage today is a failure inside the application process,
-competing for its memory limit and buried in its logs.
+**Removing it safely.** `backupOffsiteProvider` and `backupOffsiteDriveId` were
+dropped from the settings schema rather than deprecated in it. A state file
+still carrying them parses without complaint because the schema is not strict
+and silently drops what it does not name — which is what keeps a deployment
+that was set to Drive from failing to boot on the release that removes it.
 
 ---
 
@@ -562,7 +551,7 @@ next begins.
 | **2** *(built, proven on the staging box)* | Web UI: Overview, Services, logs, start/stop/restart. Auth, throttle, audit log | an operator runs the deployment from a browser |
 | **3** *(built and proven on the staging box — enforcement fired and cleared; the licence service itself is not built)* | Licence: format, offline verification, heartbeat client, grace state machine, enforcement, offline override | enforcement fires correctly on a test box and clears with a new licence |
 | **4** *(built and proven on the staging box, self-update included; the update flow's backup step waits on phase 5)* | Bootstrap wizard, preflight, versions and rollback, self-update, `rescue.sh` | a clean box goes from one `docker run` to a running firm in a browser |
-| **5** *(built and proven on the staging box: a restore completed end to end through the API, a marker row travelling back with it. Outstanding: the offsite copy, and the OCR / Drive-mirror images, which are application-repository work)* | Modules: PaddleOCR sidecar, Drive mirror extraction, tunnel. Backups, restore, offsite. Support bundle | modules can be enabled and disabled, and a restore completes without a terminal |
+| **5** *(built and proven on the staging box: a restore completed end to end through the API, a marker row travelling back with it. The offsite copy now runs against R2; the Drive mirror was retired rather than extracted. Outstanding: the OCR image, which is application-repository work)* | Modules: PaddleOCR sidecar, tunnel. Backups, restore, offsite. Support bundle | modules can be enabled and disabled, and a restore completes without a terminal |
 
 The licence service is built alongside phase 3 and lives in its own repository.
 

@@ -13,8 +13,8 @@ import { BACKUPS_DIR, listBackups } from './service.js'
  *  - a failed upload never fails the backup — it is recorded, retried on the
  *    next tick, and the panel says so, because a copy that has silently
  *    stopped going out is the failure worth catching;
- *  - the set's name is its identity in Drive too: a firm recovering onto a
- *    new machine brings a set back *by that name*, and renaming it in Drive
+ *  - the set's name is its identity in the store too: a firm recovering onto
+ *    a new machine brings a set back *by that name*, and renaming it there
  *    is the one way to break that;
  *  - bring-back lands the set in the ordinary local list, and from there the
  *    ordinary restore applies — one restore path, not two.
@@ -58,9 +58,9 @@ function writeOffsite(id: string, record: OffsiteRecord, dir: string): void {
  * The configured store, or null with the reason the panel should show.
  *
  * The selection moved to `store.ts` when R2 arrived: this module used to build
- * a `DriveClient` itself and speak folders at it, which is why adding a second
- * destination meant a second copy of everything below. It now knows only that
- * something takes a key and some bytes.
+ * a client itself and speak that provider's language at it, which is why a
+ * second destination would have meant a second copy of everything below. It
+ * now knows only that something takes a key and some bytes.
  */
 export function offsiteClient(
   dir = stateDir(),
@@ -77,7 +77,8 @@ export interface OffsiteOutcome {
 
 /**
  * Upload one set. Records the outcome either way and throws never: the caller
- * is a tick or a just-finished backup, and neither may die of a Drive outage.
+ * is a tick or a just-finished backup, and neither may die of an outage at
+ * the other end.
  */
 export async function uploadSet(
   id: string,
@@ -193,8 +194,8 @@ export async function reconcileOffsite(
  * The backlog behind it used to be unreachable. This returned the newest or
  * nothing, so a deployment that turned offsite on, or had it fail for a
  * fortnight, uploaded only what it took from that moment and left every earlier
- * set on the box for ever. Staging had fourteen of them: Drive had been
- * refusing every upload since 2 September, and when it was pointed at R2
+ * set on the box for ever. Staging had fourteen of them: the offsite copy had
+ * been refusing every upload since 2 September, and when it was pointed at R2
  * instead, thirteen of those sets were still never going to be copied anywhere.
  *
  * Oldest-first for the backlog, so it drains in the order it accumulated and a
@@ -224,7 +225,7 @@ export interface RemoteSet {
   readonly local: boolean
 }
 
-/** What is in the firm's Drive, next to what is already local. */
+/** What is in the firm's bucket, next to what is already local. */
 export async function listRemote(
   dir = stateDir(),
   fetcher: typeof fetch = fetch,
@@ -257,7 +258,7 @@ export async function listRemote(
 }
 
 /**
- * Bring a set back from Drive into the local list. From there it restores
+ * Bring a set back from the store into the local list. From there it restores
  * like any other backup — the same safety copy, the same refusal to run
  * against a live application. Recovery never needs a shell.
  */

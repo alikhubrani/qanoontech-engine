@@ -5,6 +5,15 @@ import { render } from './compose.js'
 
 const ALL = CATALOGUE.map((m) => m.entitlement).filter((e): e is string => e !== undefined)
 
+/**
+ * The two optional modules these tests render with. `email` carries required
+ * configuration and only optional secrets; `tunnel` carries the one required
+ * secret left in the catalogue, which is what the secret-contract tests need.
+ * Both jobs used to belong to the Drive mirror, retired with Google Drive.
+ */
+const VALID_EMAIL = { smtpHost: 'smtp.example.com', fromAddress: 'firm@example.com' }
+const VALID_TUNNEL = { privateRange: '10.77.42.0/24' }
+
 const settings: DeploymentSettings = {
   bindAddress: '10.77.42.5',
   appPort: 8080,
@@ -157,7 +166,7 @@ describe('render', () => {
   })
 
   it('declares every volume a rendered module asked for, once', () => {
-    const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
+    const doc = document()
     expect(Object.keys(doc.volumes).sort()).toEqual([
       'document_fonts',
       'logs_data',
@@ -167,13 +176,10 @@ describe('render', () => {
   })
 
   it('mounts the documents volume read-only wherever it is not the application', () => {
-    // A mirror copies out and nginx serves a file. Neither has any business
-    // writing to the volume holding the firm's documents.
-    const doc = document(['drive-mirror'], {
-      'drive-mirror': { sharedDriveId: '0ABCdef' },
-    })
+    // nginx serves a file; it has no business writing to the volume holding
+    // the firm's documents. The application is the only writer.
+    const doc = document()
     expect(doc.services.nginx.volumes).toContain('uploads_data:/app/uploads:ro')
-    expect(doc.services['drive-mirror'].volumes).toContain('uploads_data:/app/uploads:ro')
     expect(doc.services.app.volumes).toContain('uploads_data:/app/uploads')
   })
 
@@ -209,16 +215,16 @@ describe('render', () => {
   })
 
   it('applies the stated resource cost as a real limit', () => {
-    const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
-    expect(doc.services['drive-mirror'].deploy.resources.limits).toEqual({ cpus: '0.5', memory: '512M' })
+    const doc = document(['email'], { email: VALID_EMAIL })
+    expect(doc.services.email.deploy.resources.limits).toEqual({ cpus: '0.25', memory: '256M' })
   })
 
   it('lets an operator override a module’s memory and cpu limit', () => {
     // A bigger box can give a module more than the catalogue default, which is
     // sized for a small one.
     const resolution = resolve({
-      enabled: ['drive-mirror'],
-      config: { 'drive-mirror': { sharedDriveId: '0ABCdef' } },
+      enabled: ['email'],
+      config: { email: VALID_EMAIL },
       entitlements: ALL,
     })
     if (!resolution.ok) throw new Error('unreachable')
@@ -227,11 +233,11 @@ describe('render', () => {
       version: '1.0.2',
       settings,
       secrets,
-      resources: { 'drive-mirror': { memory: '10G', cpus: '4' } },
+      resources: { email: { memory: '10G', cpus: '4' } },
     })
     if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
     const doc = parse(result.yaml)
-    expect(doc.services['drive-mirror'].deploy.resources.limits).toEqual({ cpus: '4', memory: '10G' })
+    expect(doc.services.email.deploy.resources.limits).toEqual({ cpus: '4', memory: '10G' })
     // A module without an override keeps its catalogue default.
     expect(doc.services.postgres.deploy.resources.limits.memory).toBe('2G')
   })
@@ -374,44 +380,47 @@ describe('render', () => {
     // The declaration is a contract: a module that declares a required
     // secret cannot quietly ship without it because its render forgot to ask.
     const resolution = resolve({
-      enabled: ['drive-mirror'],
-      config: { 'drive-mirror': { sharedDriveId: '0ABCdef' } },
+      enabled: ['tunnel'],
+      config: { tunnel: VALID_TUNNEL },
       entitlements: ALL,
     })
     if (!resolution.ok) throw new Error('unreachable')
-    const mirror = resolution.modules.find((m) => m.module.id === 'drive-mirror')!
+    const tunnelled = resolution.modules.find((m) => m.module.id === 'tunnel')!
     const forgetful = {
-      ...mirror,
-      module: { ...mirror.module, render: () => ({ image: 'x', restart: 'no' as const }) },
+      ...tunnelled,
+      module: { ...tunnelled.module, render: () => ({ image: 'x', restart: 'no' as const }) },
     }
     const result = render({
-      modules: resolution.modules.map((m) => (m === mirror ? forgetful : m)),
+      modules: resolution.modules.map((m) => (m === tunnelled ? forgetful : m)),
       version: '1.0.2',
       settings,
-      secrets: { ...secrets, GOOGLE_SERVICE_ACCOUNT_KEY: '' },
+      secrets: { ...secrets, CLOUDFLARE_TUNNEL_TOKEN: '' },
     })
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.problems).toHaveLength(1)
-    expect(result.problems[0]?.message).toContain('GOOGLE_SERVICE_ACCOUNT_KEY')
+    expect(result.problems[0]?.message).toContain('CLOUDFLARE_TUNNEL_TOKEN')
   })
 
   it('reports a missing secret once, however many ways it was wanted', () => {
     // Declared and asked for: one problem, not two.
-    const result = renderWith(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } }, {
-      secrets: { ...secrets, GOOGLE_SERVICE_ACCOUNT_KEY: '' },
+    const result = renderWith(['tunnel'], { tunnel: VALID_TUNNEL }, {
+      secrets: { ...secrets, CLOUDFLARE_TUNNEL_TOKEN: '' },
     })
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.problems.filter((p) => p.message.includes('GOOGLE_SERVICE_ACCOUNT_KEY'))).toHaveLength(1)
+    expect(result.problems.filter((p) => p.message.includes('CLOUDFLARE_TUNNEL_TOKEN'))).toHaveLength(1)
   })
 
-  it('gives the drive mirror the application database and never a write mount', () => {
-    const doc = document(['drive-mirror'], { 'drive-mirror': { sharedDriveId: '0ABCdef' } })
-    const mirror = doc.services['drive-mirror']
-    expect(mirror.environment.DATABASE_URL).toContain('@postgres:5432/')
-    expect(mirror.environment.DATABASE_URL).toContain('db-secret')
-    expect(mirror.volumes).toEqual(['uploads_data:/app/uploads:ro'])
-    expect(mirror.depends_on.postgres).toEqual({ condition: 'service_healthy' })
+  it('gives a sidecar the application database and no documents volume', () => {
+    // The mailer's queue is outbox rows the application writes, so it needs
+    // the same database and waits for it. It sends text about documents and
+    // never the documents, so it mounts nothing.
+    const doc = document(['email'], { email: VALID_EMAIL })
+    const mailer = doc.services.email
+    expect(mailer.environment.DATABASE_URL).toContain('@postgres:5432/')
+    expect(mailer.environment.DATABASE_URL).toContain('db-secret')
+    expect(mailer.volumes).toBeUndefined()
+    expect(mailer.depends_on.postgres).toEqual({ condition: 'service_healthy' })
   })
 })

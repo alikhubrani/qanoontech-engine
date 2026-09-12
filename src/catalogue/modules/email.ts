@@ -127,9 +127,9 @@ export const email = defineModule({
     restart: 'unless-stopped',
     environment: {
       // The same database the application uses: the queue is outbox rows the
-      // application writes. Like the drive mirror, this is an
-      // application-family component — it is the *engine* that never holds a
-      // database connection, not this container.
+      // application writes. This is an application-family component — it is
+      // the *engine* that never holds a database connection, not this
+      // container.
       DATABASE_URL:
         `postgresql://${ctx.settings.dbUser}:${ctx.secret('DB_PASSWORD')}` +
         `@postgres:5432/${ctx.settings.dbName}?schema=public`,

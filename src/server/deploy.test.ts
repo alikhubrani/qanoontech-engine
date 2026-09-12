@@ -86,7 +86,7 @@ async function licensed(): Promise<void> {
     firmName: 'Al-Mithal Law Firm',
     issuedAt: new Date(Date.now() - DAY).toISOString(),
     expiresAt: new Date(Date.now() + 365 * DAY).toISOString(),
-    entitlements: ['module.drive-mirror'],
+    entitlements: ['module.email', 'module.tunnel'],
     seats: 0,
     heartbeat: { url: 'https://licence.example/hb', intervalHours: 24, graceDays: 30 },
     override: false,
@@ -159,14 +159,23 @@ describe('settings', () => {
   })
 })
 
+/**
+ * The optional modules these tests drive the module API with. `email` has
+ * required configuration and only optional secrets; `tunnel` has the one
+ * required secret left in the catalogue. Both roles used to be the Drive
+ * mirror's, retired with Google Drive.
+ */
+const VALID_EMAIL = { smtpHost: 'smtp.example.com', fromAddress: 'firm@example.com' }
+const TUNNEL_TOKEN = 'eyJhIjoidHVubmVsLXRva2VuIn0'
+
 describe('modules over the API', () => {
   it('enables, disables, and refuses the required', async () => {
     const cookie = await signIn()
     expect(
-      (await app.inject({ method: 'POST', url: '/api/modules/drive-mirror/enable', headers: { cookie } }))
+      (await app.inject({ method: 'POST', url: '/api/modules/email/enable', headers: { cookie } }))
         .statusCode,
     ).toBe(200)
-    expect(loadState(dir).enabled).toContain('drive-mirror')
+    expect(loadState(dir).enabled).toContain('email')
 
     expect(
       (await app.inject({ method: 'POST', url: '/api/modules/postgres/disable', headers: { cookie } }))
@@ -174,27 +183,27 @@ describe('modules over the API', () => {
     ).toBe(409)
 
     expect(
-      (await app.inject({ method: 'POST', url: '/api/modules/drive-mirror/disable', headers: { cookie } }))
+      (await app.inject({ method: 'POST', url: '/api/modules/email/disable', headers: { cookie } }))
         .statusCode,
     ).toBe(200)
-    expect(loadState(dir).enabled).not.toContain('drive-mirror')
+    expect(loadState(dir).enabled).not.toContain('email')
   })
 
   it('validates module config against its schema', async () => {
     const cookie = await signIn()
     const bad = await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/config',
+      url: '/api/modules/email/config',
       headers: { cookie },
-      payload: { config: { sharedDriveId: '' } },
+      payload: { config: { ...VALID_EMAIL, smtpHost: '' } },
     })
     expect(bad.statusCode).toBe(422)
 
     const good = await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/config',
+      url: '/api/modules/email/config',
       headers: { cookie },
-      payload: { config: { sharedDriveId: '0ABCdef' } },
+      payload: { config: VALID_EMAIL },
     })
     expect(good.statusCode).toBe(200)
   })
@@ -331,10 +340,10 @@ describe('modules describe themselves to the panel', () => {
       secrets: { name: string; set: boolean }[]
     }[]
 
-    const mirror = modules.find((m) => m.id === 'drive-mirror')!
-    expect(mirror.configSchema?.properties?.['sharedDriveId']?.title).toBe('Shared Drive ID')
-    expect(mirror.secrets.map((s) => s.name)).toEqual(['GOOGLE_SERVICE_ACCOUNT_KEY'])
-    expect(mirror.secrets[0]!.set).toBe(false)
+    const mailer = modules.find((m) => m.id === 'email')!
+    expect(mailer.configSchema?.properties?.['smtpHost']?.title).toBe('SMTP host')
+    expect(mailer.secrets.map((s) => s.name)).toEqual(['SMTP_PASSWORD', 'SMTP_OAUTH_SECRET'])
+    expect(mailer.secrets[0]!.set).toBe(false)
 
     // A module with no config renders no form — null, not an empty object.
     expect(modules.find((m) => m.id === 'postgres')!.configSchema).toBeNull()
@@ -344,22 +353,22 @@ describe('modules describe themselves to the panel', () => {
     const cookie = await signIn()
     const put = await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/secrets',
+      url: '/api/modules/tunnel/secrets',
       headers: { cookie },
-      payload: { values: { GOOGLE_SERVICE_ACCOUNT_KEY: '{"type":"service_account"}' } },
+      payload: { values: { CLOUDFLARE_TUNNEL_TOKEN: TUNNEL_TOKEN } },
     })
     expect(put.statusCode).toBe(200)
-    expect(JSON.stringify(put.json())).not.toContain('service_account')
+    expect(JSON.stringify(put.json())).not.toContain(TUNNEL_TOKEN)
 
     const listing = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
-    const mirror = listing
+    const tunnelled = listing
       .json()
-      .data.modules.find((m: { id: string }) => m.id === 'drive-mirror')
-    expect(mirror.secrets[0].set).toBe(true)
-    expect(JSON.stringify(listing.json())).not.toContain('service_account')
+      .data.modules.find((m: { id: string }) => m.id === 'tunnel')
+    expect(tunnelled.secrets[0].set).toBe(true)
+    expect(JSON.stringify(listing.json())).not.toContain(TUNNEL_TOKEN)
 
     const { loadSecrets } = await import('../state/store.js')
-    expect(loadSecrets(dir)['GOOGLE_SERVICE_ACCOUNT_KEY']).toBe('{"type":"service_account"}')
+    expect(loadSecrets(dir)['CLOUDFLARE_TUNNEL_TOKEN']).toBe(TUNNEL_TOKEN)
   })
 
   it('reports which secrets are optional, and lets only those be cleared', async () => {
@@ -371,7 +380,7 @@ describe('modules describe themselves to the panel', () => {
     }[]
     const smtp = modules.find((m) => m.id === 'email')!.secrets.find((s) => s.name === 'SMTP_PASSWORD')!
     expect(smtp.optional).toBe(true)
-    expect(modules.find((m) => m.id === 'drive-mirror')!.secrets[0]!.optional).toBe(false)
+    expect(modules.find((m) => m.id === 'tunnel')!.secrets[0]!.optional).toBe(false)
 
     const { loadSecrets } = await import('../state/store.js')
 
@@ -397,26 +406,26 @@ describe('modules describe themselves to the panel', () => {
     // A required secret can be replaced but never cleared.
     await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/secrets',
+      url: '/api/modules/tunnel/secrets',
       headers: { cookie },
-      payload: { values: { GOOGLE_SERVICE_ACCOUNT_KEY: '{"type":"service_account"}' } },
+      payload: { values: { CLOUDFLARE_TUNNEL_TOKEN: TUNNEL_TOKEN } },
     })
     const refused = await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/secrets',
+      url: '/api/modules/tunnel/secrets',
       headers: { cookie },
-      payload: { values: { GOOGLE_SERVICE_ACCOUNT_KEY: '' } },
+      payload: { values: { CLOUDFLARE_TUNNEL_TOKEN: '' } },
     })
     expect(refused.statusCode).toBe(422)
-    expect(loadSecrets(dir)['GOOGLE_SERVICE_ACCOUNT_KEY']).toBe('{"type":"service_account"}')
+    expect(loadSecrets(dir)['CLOUDFLARE_TUNNEL_TOKEN']).toBe(TUNNEL_TOKEN)
   })
 
   it('refuses a secret the module does not declare — this is not a general write path', async () => {
     const cookie = await signIn()
     for (const [module, name] of [
-      ['drive-mirror', 'DB_PASSWORD'],
-      ['drive-mirror', 'JWT_SECRET'],
-      ['email', 'GOOGLE_SERVICE_ACCOUNT_KEY'],
+      ['tunnel', 'DB_PASSWORD'],
+      ['tunnel', 'JWT_SECRET'],
+      ['email', 'CLOUDFLARE_TUNNEL_TOKEN'],
     ] as const) {
       const put = await app.inject({
         method: 'PUT',
@@ -465,30 +474,30 @@ describe('per-module resource overrides', () => {
     await licensed()
 
     const before = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
-    const mirror = before.json().data.modules.find((m: { id: string }) => m.id === 'drive-mirror')
-    expect(mirror.resources.defaultMemory).toBe('512M')
-    expect(mirror.resources.memory).toBe('512M')
+    const mailer = before.json().data.modules.find((m: { id: string }) => m.id === 'email')
+    expect(mailer.resources.defaultMemory).toBe('256M')
+    expect(mailer.resources.memory).toBe('256M')
 
     const put = await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/resources',
+      url: '/api/modules/email/resources',
       headers: { cookie },
       payload: { memory: '10G', cpus: '4' },
     })
     expect(put.statusCode).toBe(200)
 
     const after = await app.inject({ method: 'GET', url: '/api/modules', headers: { cookie } })
-    const mirror2 = after.json().data.modules.find((m: { id: string }) => m.id === 'drive-mirror')
-    expect(mirror2.resources.memory).toBe('10G')
-    expect(mirror2.resources.defaultMemory).toBe('512M')
-    expect(loadState(dir).resources['drive-mirror']).toEqual({ memory: '10G', cpus: '4' })
+    const mailer2 = after.json().data.modules.find((m: { id: string }) => m.id === 'email')
+    expect(mailer2.resources.memory).toBe('10G')
+    expect(mailer2.resources.defaultMemory).toBe('256M')
+    expect(loadState(dir).resources['email']).toEqual({ memory: '10G', cpus: '4' })
   })
 
   it('refuses a nonsense memory string', async () => {
     const cookie = await signIn()
     const put = await app.inject({
       method: 'PUT',
-      url: '/api/modules/drive-mirror/resources',
+      url: '/api/modules/email/resources',
       headers: { cookie },
       payload: { memory: 'lots' },
     })

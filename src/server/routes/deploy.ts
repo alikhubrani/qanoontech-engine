@@ -21,8 +21,6 @@ const settingsPatchSchema = z.object({
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).optional(),
   backupIntervalMinutes: z.number().int().min(5).max(1440).optional(),
   backupOffsiteEnabled: z.boolean().optional(),
-  backupOffsiteDriveId: z.string().optional(),
-  backupOffsiteProvider: z.enum(['drive', 's3']).optional(),
   backupS3Endpoint: z.string().optional(),
   backupS3Bucket: z.string().optional(),
   backupS3Region: z.string().optional(),

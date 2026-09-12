@@ -248,11 +248,24 @@ be measured both ways.
   costs 115× less as snapshots. If the database passes roughly a gigabyte, or if
   it moves to a managed service that offers PITR as a feature, re-open that
   document.
-- **It does not retire Google Drive yet.** Drive goes when Phase 1 has run on the
-  firm's box and their documents are demonstrably in R2 — not before. The Drive
-  *mirror* in the application is a separate thing again: it exists so a human can
-  browse the archive, not so it can be restored, and retiring it is its own
-  decision.
+- **~~It does not retire Google Drive yet.~~** *Retired 2026-09-12, ahead of the
+  gate this bullet set — and the gate is worth recording rather than quietly
+  stepping over.* It said Drive goes only once the firm's documents are
+  demonstrably in R2, on the reasoning that removing a destination a box is
+  using would leave it with none. That reasoning did not apply: `.18` had
+  `backupOffsiteProvider: 'drive'` with `backupOffsiteEnabled: false` and had
+  never sent a byte anywhere, and `.106` had already moved to R2. There was no
+  Drive copy to lose on either box, so the gate was protecting nothing.
+
+  What the gate *was* right about is still true and still outstanding: **`.18`
+  has no offsite copy at all.** Retiring Drive did not cause that and does not
+  worsen it, but it does not fix it either — Phase 1 step 3 does, and it remains
+  the most important thing on this list.
+
+  The Drive *mirror* in the application went with it. It existed so a human
+  could browse the archive, not so anything could be restored, and the engine
+  now copies documents to the bucket under `documents/` — one destination, one
+  credential, one thing to check.
 - **It does not encrypt the backup sets themselves.** Worth doing, and a separate
   decision: it changes what a restore needs to hand and what is lost if a
   passphrase is.

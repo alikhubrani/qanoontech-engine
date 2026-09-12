@@ -35,7 +35,7 @@ function claims(overrides: Partial<LicenceClaims> = {}): LicenceClaims {
     firmName: 'Al-Mithal Law Firm',
     issuedAt: new Date(Date.now() - DAY).toISOString(),
     expiresAt: new Date(Date.now() + 365 * DAY).toISOString(),
-    entitlements: ['module.ocr', 'module.drive-mirror', 'module.tunnel'],
+    entitlements: ['module.ocr', 'module.email', 'module.tunnel'],
     seats: 25,
     heartbeat: { url: 'https://licence.qanoontech.com/heartbeat', intervalHours: 24, graceDays: 30 },
     override: false,
