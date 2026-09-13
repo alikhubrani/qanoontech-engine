@@ -18,6 +18,13 @@ export function Settings() {
     <Page>
       <PageHeader title={S.navSettings} description={S.settingsPageExplainer} />
       <EngineSection />
+      <Section title={S.supportTitle} description={S.supportExplainer}>
+        <Button variant="outline" size="sm" asChild>
+          <a href="/api/support-bundle" download>
+            {S.supportDownload}
+          </a>
+        </Button>
+      </Section>
     </Page>
   )
 }

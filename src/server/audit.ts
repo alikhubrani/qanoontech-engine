@@ -93,6 +93,10 @@ export type AuditEvent =
    */
   | 'snapshot-failed'
   | 'recovered'
+  /* 0.21: configured from the panel as well as the shell. */
+  | 'offsite-changed'
+  | 'recovery-passphrase-set'
+  | 'backup-drilled'
 
 interface EventDescription {
   readonly label: string
@@ -132,6 +136,9 @@ export const AUDIT_EVENTS: Readonly<Record<AuditEvent, EventDescription>> = {
   'offsite-fetched': { label: 'Backup brought back from offsite', kind: 'change' },
   'snapshot-failed': { label: 'Engine snapshot failed', kind: 'failure' },
   recovered: { label: 'Deployment recovered', kind: 'change' },
+  'offsite-changed': { label: 'Offsite storage changed', kind: 'change' },
+  'recovery-passphrase-set': { label: 'Recovery passphrase set', kind: 'security' },
+  'backup-drilled': { label: 'Backup drilled', kind: 'routine' },
 }
 
 /**

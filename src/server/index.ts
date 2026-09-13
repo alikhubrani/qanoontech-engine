@@ -16,6 +16,7 @@ import { backupRoutes } from './routes/backups.js'
 import { deployRoutes } from './routes/deploy.js'
 import { engineRoutes } from './routes/engine.js'
 import { overviewRoutes } from './routes/overview.js'
+import { recoveryRoutes } from './routes/recovery.js'
 import { SESSION_COOKIE, sessionRoutes } from './routes/session.js'
 import { serviceRoutes } from './routes/services.js'
 import { supportRoutes } from './routes/support.js'
@@ -111,6 +112,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   serviceRoutes(app, ctx)
   deployRoutes(app, ctx, new JobRunner(dir))
   backupRoutes(app, ctx)
+  recoveryRoutes(app, ctx)
   engineRoutes(app, ctx)
   supportRoutes(app, ctx)
 

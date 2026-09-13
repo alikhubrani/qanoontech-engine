@@ -334,9 +334,9 @@ backup
   .command('drill [id]')
   .description('Restore a set into a scratch database and time it — the only proof a backup is one')
   .action(async (id?: string) => {
-    const { runDrill } = await import('./backup/drill.js')
+    const { drillAndRecord } = await import('./backup/drill.js')
     console.log('Restoring into a scratch database. The live one is not touched.')
-    const result = await runDrill(id)
+    const result = await drillAndRecord(id)
     console.log(result.detail)
     if (result.ok && result.restoreMs !== undefined) {
       console.log(`\nRecovery time for the database: ${(result.restoreMs / 1000).toFixed(1)}s.`)
@@ -479,40 +479,13 @@ offsite
     /*
      * A round trip, not a list. Listing proves the credential can read; a firm
      * finds out whether it can *write* at 2am on the night it matters, which
-     * is the wrong time. This writes, reads back, compares and cleans up.
+     * is the wrong time. The same probe the panel runs.
      */
-    const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-
-    const work = mkdtempSync(join(tmpdir(), 'qt-offsite-'))
-    const token = `engine connectivity check ${new Date().toISOString()}`
-    const localOut = join(work, 'probe.json')
-    const localBack = join(work, 'probe-back.json')
-    const key = '__engine_check__/probe.json'
-
-    try {
-      writeFileSync(localOut, token)
-      console.log(`writing   ${key} to ${store.label}…`)
-      await store.put(key, localOut, 'application/json')
-
-      const seen = await store.stat(key)
-      console.log(`stat      ${seen ? `${seen.size} bytes` : 'NOT FOUND'}`)
-
-      await store.get(key, localBack)
-      const same = readFileSync(localBack, 'utf8') === token
-      console.log(`read back ${same ? 'identical' : 'DIFFERENT — do not trust this store'}`)
-      if (!same) process.exit(1)
-
-      await store.remove(key)
-      console.log(`cleaned   probe removed`)
-      console.log(`\n${store.label} is writable and readable from this box.`)
-    } catch (error) {
-      console.error(`\nFailed: ${(error as Error).message}`)
-      process.exit(1)
-    } finally {
-      rmSync(work, { recursive: true, force: true })
-    }
+    const { probeOffsite } = await import('./backup/offsite.js')
+    const result = await probeOffsite(store)
+    for (const step of result.steps) console.log(`${step.ok ? 'ok  ' : 'FAIL'}  ${step.step.padEnd(7)} ${step.detail}`)
+    console.log(result.ok ? `\n${store.label} is writable and readable from this box.` : '\nDo not trust this store until the failure above is fixed.')
+    process.exit(result.ok ? 0 : 1)
   })
 
 program

@@ -291,3 +291,62 @@ export async function fetchSet(
     return { ok: false, detail: (error as Error).message.slice(0, 300) }
   }
 }
+
+export interface ProbeStep {
+  readonly step: 'write' | 'stat' | 'read' | 'remove'
+  readonly ok: boolean
+  readonly detail: string
+}
+
+/**
+ * Write a small object, read it back, compare, delete — proof, not
+ * configuration. Listing proves a credential can read; a firm finds out
+ * whether it can *write* at 2am on the night it matters, which is the wrong
+ * time. Shared by `offsite test` and the panel so the two prove the same thing.
+ */
+export async function probeOffsite(store: OffsiteStore): Promise<{ ok: boolean; steps: ProbeStep[] }> {
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const work = mkdtempSync(join(tmpdir(), 'qt-offsite-'))
+  const token = `engine connectivity check ${new Date().toISOString()}`
+  const localOut = join(work, 'probe.json')
+  const localBack = join(work, 'probe-back.json')
+  const key = '__engine_check__/probe.json'
+  const steps: ProbeStep[] = []
+  try {
+    writeFileSync(localOut, token)
+    await store.put(key, localOut, 'application/json')
+    steps.push({ step: 'write', ok: true, detail: `${key} written to ${store.label}` })
+    const seen = await store.stat(key)
+    steps.push({ step: 'stat', ok: Boolean(seen), detail: seen ? `${seen.size} bytes` : 'not found after writing' })
+    if (!seen) return { ok: false, steps }
+    await store.get(key, localBack)
+    const same = readFileSync(localBack, 'utf8') === token
+    steps.push({ step: 'read', ok: same, detail: same ? 'identical' : 'DIFFERENT — do not trust this store' })
+    if (!same) return { ok: false, steps }
+    await store.remove(key)
+    steps.push({ step: 'remove', ok: true, detail: 'probe removed' })
+    return { ok: true, steps }
+  } catch (error) {
+    const last = steps.length === 0 ? 'write' : steps.at(-1)!.step === 'write' ? 'stat' : steps.at(-1)!.step === 'stat' ? 'read' : 'remove'
+    steps.push({ step: last, ok: false, detail: (error as Error).message.slice(0, 300) })
+    return { ok: false, steps }
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+
+/** What the bucket holds under `documents/`: how many, how much. */
+export async function remoteDocuments(
+  dir = stateDir(),
+  fetcher: typeof fetch = fetch,
+): Promise<{ ok: true; files: number; bytes: number } | { ok: false; detail: string }> {
+  const { client, reason } = offsiteClient(dir, fetcher)
+  if (!client) return { ok: false, detail: reason ?? 'off' }
+  try {
+    const objects = await client.list('documents/')
+    return { ok: true, files: objects.length, bytes: objects.reduce((sum, o) => sum + o.size, 0) }
+  } catch (error) {
+    return { ok: false, detail: (error as Error).message.slice(0, 300) }
+  }
+}

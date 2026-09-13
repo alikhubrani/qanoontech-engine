@@ -20,6 +20,10 @@ const settingsPatchSchema = z.object({
   // turn the logs up when something is wrong and down when it is not.
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).optional(),
   backupIntervalMinutes: z.number().int().min(5).max(1440).optional(),
+  backupHour: z.number().int().min(0).max(23).optional(),
+  backupRetentionDays: z.number().int().min(1).max(3650).optional(),
+  backupIncludeUploads: z.boolean().optional(),
+  maxFileSizeBytes: z.number().int().positive().optional(),
   backupOffsiteEnabled: z.boolean().optional(),
   backupS3Endpoint: z.string().optional(),
   backupS3Bucket: z.string().optional(),

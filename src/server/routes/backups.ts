@@ -4,8 +4,10 @@ import {
   listRemote,
   offsiteClient,
   readOffsite,
+  remoteDocuments,
   uploadSet,
 } from '../../backup/offsite.js'
+import { drillAndRecord } from '../../backup/drill.js'
 import {
   deleteBackup,
   listBackups,
@@ -45,8 +47,32 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
   })
 
   app.get('/api/backups/offsite', async () => {
-    const result = await listRemote(ctx.dir)
-    return { success: true, data: result.ok ? { sets: result.sets } : { sets: [], detail: result.detail } }
+    const [result, documents] = await Promise.all([listRemote(ctx.dir), remoteDocuments(ctx.dir)])
+    return {
+      success: true,
+      data: {
+        ...(result.ok ? { sets: result.sets } : { sets: [], detail: result.detail }),
+        documents: documents.ok ? { files: documents.files, bytes: documents.bytes } : null,
+      },
+    }
+  })
+
+  /*
+   * The drill: restore a set into a scratch database, time it, count the
+   * rows, drop it. The live database is never touched, and it shares the busy
+   * flag because it is a helper container against the same server.
+   */
+  app.post('/api/backups/drill', async (request, reply) => {
+    if (busy) return refuse(reply, 409, 'A backup or restore is already running.')
+    const { id } = (request.body ?? {}) as { id?: string }
+    busy = true
+    try {
+      const result = await drillAndRecord(id || undefined, ctx.dir)
+      ctx.audit.record('backup-drilled', { detail: result.detail.slice(0, 200), address: request.ip })
+      return { success: true, data: result }
+    } finally {
+      busy = false
+    }
   })
 
   app.post('/api/backups/offsite/fetch', async (request, reply) => {

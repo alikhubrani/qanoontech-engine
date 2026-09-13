@@ -177,6 +177,55 @@ export interface RemoteSet {
   local: boolean
 }
 
+export interface RemoteListing {
+  sets: RemoteSet[]
+  detail?: string
+  documents: { files: number; bytes: number } | null
+}
+
+export interface OffsiteStatus {
+  enabled: boolean
+  endpoint: string
+  bucket: string
+  region: string
+  prefix: string
+  keys: { accessKeyId: boolean; secretAccessKey: boolean }
+  ready: boolean
+  reason: string | null
+  label: string | null
+  sets: number
+  pending: number
+  oldestPending: string | null
+}
+
+export interface ProbeResult {
+  ok: boolean
+  steps: { step: 'write' | 'stat' | 'read' | 'remove'; ok: boolean; detail: string }[]
+}
+
+export interface DrillResult {
+  ok: boolean
+  id?: string
+  restoreMs?: number
+  tables?: number
+  rows?: Record<string, number>
+  detail: string
+  at?: string
+}
+
+export interface RecoveryStatus {
+  passphraseSet: boolean
+  snapshot: {
+    uploadedAt: string | null
+    verifiedAt: string | null
+    inStore: boolean | null
+    bytes: number | null
+    key: string
+  }
+  store: { label: string } | null
+  lastDrill: DrillResult | null
+}
+
 export interface RestoreResult {
   ok: boolean
   steps: { step: string; ok: boolean; detail?: string }[]

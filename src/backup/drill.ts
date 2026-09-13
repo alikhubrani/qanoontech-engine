@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeJsonAtomic } from '../lib/json-files.js'
 import * as docker from '../docker/index.js'
 import { stateDir } from '../state/store.js'
 import { databaseTarget } from './target.js'
@@ -142,3 +144,29 @@ export async function runDrill(
 
 /** Where the drill's own record lives, so "when did we last prove it" has an answer. */
 export const DRILL_FILE = join(BACKUPS_DIR, 'last-drill.json')
+
+/** The last drill's record, or nothing: when a backup was last proved to restore. */
+export function readLastDrill(dir = stateDir()): (DrillResult & { readonly at?: string }) | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, DRILL_FILE), 'utf8')) as DrillResult & { at?: string }
+    return typeof raw === 'object' && raw !== null ? raw : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Run the drill and keep its record. `runDrill` itself stays pure of side
+ * effects beyond the scratch database, so a caller that only wants the number
+ * can have it; this is what the CLI and the panel call.
+ */
+export async function drillAndRecord(id?: string, dir = stateDir()): Promise<DrillResult & { at: string }> {
+  const result = await runDrill(id, dir)
+  const recorded = { ...result, at: new Date().toISOString() }
+  try {
+    writeJsonAtomic(join(dir, DRILL_FILE), recorded)
+  } catch {
+    /* the record is a convenience; the drill's result is the fact */
+  }
+  return recorded
+}
