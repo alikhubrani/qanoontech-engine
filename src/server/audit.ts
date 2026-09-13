@@ -93,6 +93,13 @@ export type AuditEvent =
    */
   | 'snapshot-failed'
   | 'recovered'
+  /*
+   * 0.26: a copy that has failed three ticks running, and the tick it works
+   * again. One blip healed by the next tick is not an event; see backup/streak.ts.
+   */
+  | 'offsite-recovered'
+  | 'documents-sync-recovered'
+  | 'snapshot-recovered'
   /* 0.21: configured from the panel as well as the shell. */
   | 'offsite-changed'
   | 'recovery-passphrase-set'
@@ -150,6 +157,9 @@ export const AUDIT_EVENTS: Readonly<Record<AuditEvent, EventDescription>> = {
   'database-changed': { label: 'Database changed', kind: 'change' },
   'secret-set': { label: 'Credential stored', kind: 'change' },
   'secret-removed': { label: 'Credential removed', kind: 'change' },
+  'offsite-recovered': { label: 'Offsite copy working again', kind: 'change' },
+  'documents-sync-recovered': { label: 'Document copy working again', kind: 'change' },
+  'snapshot-recovered': { label: 'Engine snapshot working again', kind: 'change' },
 }
 
 /**

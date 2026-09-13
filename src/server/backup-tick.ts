@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { offsiteClient, pendingOffsite, reconcileOffsite, uploadSet } from '../backup/offsite.js'
-import { pushSnapshot, reconcileSnapshot, snapshotAuditEvent } from '../backup/snapshot.js'
+import { pushSnapshot, reconcileSnapshot } from '../backup/snapshot.js'
+import { NO_STREAK, TICKS_BEFORE_REPORT, advanceStreak, clockOf, type Streak } from '../backup/streak.js'
 import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { backupHealth } from '../backup/health.js'
@@ -8,6 +9,7 @@ import { alertIfNeeded, noteHealthLevel } from '../backup/alert.js'
 import { syncDocuments } from '../backup/documents.js'
 import { loadState } from '../state/store.js'
 import type { ServerContext } from './context.js'
+import type { AuditEvent } from './audit.js'
 
 /**
  * The backup loop. The inputs are on disk and the decision is a pure
@@ -36,8 +38,36 @@ import type { ServerContext } from './context.js'
 const TICK_MS = 5 * 60 * 1000
 
 let running = false
-/** Whether the last snapshot push failed, so a failure is recorded once, not per tick. */
-let snapshotFailing = false
+
+/*
+ * The three offsite copies, each with its own run of failed ticks. A run is
+ * written to the trail once it has lasted three ticks, and again when it
+ * ends; a single tick that could not reach the store is not an event. Eight
+ * "fetch failed" rows on a firm's box in one day were each healed by the
+ * next tick, and the trail is for what needs a person.
+ */
+type Copy = 'sets' | 'documents' | 'snapshot'
+const COPY_EVENTS: Readonly<Record<Copy, { failed: AuditEvent; recovered: AuditEvent }>> = {
+  sets: { failed: 'offsite-failed', recovered: 'offsite-recovered' },
+  documents: { failed: 'documents-sync-failed', recovered: 'documents-sync-recovered' },
+  snapshot: { failed: 'snapshot-failed', recovered: 'snapshot-recovered' },
+}
+const streaks: Record<Copy, Streak> = { sets: NO_STREAK, documents: NO_STREAK, snapshot: NO_STREAK }
+
+function noteCopy(ctx: ServerContext, copy: Copy, outcome: { readonly ok: boolean; readonly detail: string }): void {
+  const before = streaks[copy]
+  const step = advanceStreak(before, outcome, new Date().toISOString())
+  streaks[copy] = step.streak
+  if (step.event === 'report') {
+    ctx.audit.record(COPY_EVENTS[copy].failed, {
+      detail: `Failing for ${TICKS_BEFORE_REPORT} ticks, since ${clockOf(step.streak.since ?? '')}. Last: ${step.streak.lastError}`,
+    })
+  } else if (step.event === 'recovered') {
+    ctx.audit.record(COPY_EVENTS[copy].recovered, {
+      detail: `Working again after ${before.failures} failed tick(s) since ${clockOf(before.since ?? '')}.`,
+    })
+  }
+}
 
 export async function backupTick(ctx: ServerContext): Promise<void> {
   if (running) return
@@ -76,7 +106,8 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
     const pending = pendingOffsite(ctx.dir)
     if (pending) {
       const sent = await uploadSet(pending, ctx.dir)
-      ctx.audit.record(sent.ok ? 'offsite-uploaded' : 'offsite-failed', { detail: sent.detail })
+      if (sent.ok) ctx.audit.record('offsite-uploaded', { detail: sent.detail })
+      noteCopy(ctx, 'sets', sent)
     }
 
     /*
@@ -87,9 +118,8 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
      */
     if (loadState(ctx.dir).settings.backupOffsiteEnabled) {
       const synced = await syncDocuments(ctx.dir)
-      if (synced.sent > 0 || !synced.ok) {
-        ctx.audit.record(synced.ok ? 'documents-synced' : 'documents-sync-failed', { detail: synced.detail })
-      }
+      if (synced.ok && synced.sent > 0) ctx.audit.record('documents-synced', { detail: synced.detail })
+      noteCopy(ctx, 'documents', synced)
     }
 
     /*
@@ -102,9 +132,7 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
      */
     const store = offsiteClient(ctx.dir).client
     const snapshot = await pushSnapshot(ctx.dir, store, ctx.engineVersion)
-    const snapshotEvent = snapshotAuditEvent(snapshot, snapshotFailing)
-    snapshotFailing = !snapshot.ok
-    if (snapshotEvent) ctx.audit.record(snapshotEvent, { detail: snapshot.detail })
+    noteCopy(ctx, 'snapshot', snapshot)
     if (snapshot.ok && !snapshot.sent && store) {
       const check = await reconcileSnapshot(ctx.dir, store)
       if (check.missing) {

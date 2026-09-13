@@ -1,3 +1,4 @@
+import type { S3ClientOptions } from './s3.js'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -65,8 +66,9 @@ function writeOffsite(id: string, record: OffsiteRecord, dir: string): void {
 export function offsiteClient(
   dir = stateDir(),
   fetcher: typeof fetch = fetch,
+  options: S3ClientOptions = {},
 ): { client: OffsiteStore | null; reason?: string } {
-  const { store, reason } = offsiteStore(dir, fetcher)
+  const { store, reason } = offsiteStore(dir, fetcher, options)
   return { client: store, ...(reason ? { reason } : {}) }
 }
 
@@ -84,8 +86,9 @@ export async function uploadSet(
   id: string,
   dir = stateDir(),
   fetcher: typeof fetch = fetch,
+  options: S3ClientOptions = {},
 ): Promise<OffsiteOutcome> {
-  const { client, reason } = offsiteClient(dir, fetcher)
+  const { client, reason } = offsiteClient(dir, fetcher, options)
   if (!client) return { ok: false, detail: reason ?? 'off' }
 
   const record = readOffsite(id, dir)
@@ -156,8 +159,9 @@ export async function uploadSet(
 export async function reconcileOffsite(
   dir = stateDir(),
   fetcher: typeof fetch = fetch,
+  options: S3ClientOptions = {},
 ): Promise<{ checked: number; corrected: string[] }> {
-  const { client } = offsiteClient(dir, fetcher)
+  const { client } = offsiteClient(dir, fetcher, options)
   if (!client) return { checked: 0, corrected: [] }
 
   let present: Set<string>

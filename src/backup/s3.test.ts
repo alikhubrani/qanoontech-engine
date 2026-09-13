@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { S3Client, signRequest, type S3Config } from './s3.js'
+import { RETRY_AFTER_MS, S3Client, describeFailure, requestBudgetMs, signRequest, type S3Config } from './s3.js'
 
 /**
  * Signature Version 4, checked for the properties that catch a wrong one.
@@ -173,5 +173,94 @@ describe('the client', () => {
     const fetcher = (async () =>
       new Response('<Error><Code>SignatureDoesNotMatch</Code></Error>', { status: 403 })) as unknown as typeof fetch
     await expect(new S3Client(config, fetcher).list('sets/')).rejects.toThrow(/403.*SignatureDoesNotMatch/s)
+  })
+})
+
+/*
+ * A firm's box wrote eight "fetch failed" rows in a day, every one healed by
+ * the next tick. The store was fine; the line was busy or the resolver
+ * blinked. The client now says why, tries once more, and gives a stalled
+ * socket a deadline.
+ */
+describe('when the store does not answer', () => {
+  const emptyList = () =>
+    new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', { status: 200 })
+  const unreachable = () =>
+    Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND abc123.r2.cloudflarestorage.com'), {
+        code: 'ENOTFOUND',
+        hostname: 'abc123.r2.cloudflarestorage.com',
+      }),
+    })
+  const harness = (answers: Array<() => Response | never>) => {
+    const pauses: number[] = []
+    let calls = 0
+    const fetcher = (async () => {
+      const answer = answers[Math.min(calls++, answers.length - 1)]!
+      return answer()
+    }) as unknown as typeof fetch
+    const client = new S3Client(config, fetcher, {
+      pause: async (ms) => {
+        pauses.push(ms)
+      },
+    })
+    return { client, pauses, calls: () => calls }
+  }
+
+  it('tries once more after a pause when nothing answered', async () => {
+    const { client, pauses, calls } = harness([() => { throw unreachable() }, emptyList])
+    await expect(client.list('sets/')).resolves.toEqual([])
+    expect(calls()).toBe(2)
+    expect(pauses).toEqual([RETRY_AFTER_MS])
+  })
+
+  it('then gives up, and says which host and why, not "fetch failed"', async () => {
+    const { client, calls } = harness([() => { throw unreachable() }])
+    await expect(client.list('sets/')).rejects.toThrow(
+      /fetch failed \(ENOTFOUND abc123\.r2\.cloudflarestorage\.com: getaddrinfo ENOTFOUND .*\) on GET \/qanoontech-backups/,
+    )
+    expect(calls()).toBe(2)
+  })
+
+  it('tries once more on a 503, which is the store having a moment', async () => {
+    const { client, calls } = harness([() => new Response('', { status: 503 }), emptyList])
+    await expect(client.list('sets/')).resolves.toEqual([])
+    expect(calls()).toBe(2)
+  })
+
+  it('does not retry a refusal: a wrong signature is wrong twice', async () => {
+    const { client, pauses, calls } = harness([
+      () => new Response('<Error><Code>SignatureDoesNotMatch</Code></Error>', { status: 403 }),
+    ])
+    await expect(client.list('sets/')).rejects.toThrow(/403/)
+    expect(calls()).toBe(1)
+    expect(pauses).toEqual([])
+  })
+
+  it('gives a request that never answers a deadline', async () => {
+    let calls = 0
+    const fetcher = ((_url: string, init?: RequestInit) => {
+      calls += 1
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason as Error))
+      })
+    }) as unknown as typeof fetch
+    const client = new S3Client(config, fetcher, { pause: async () => {}, budgetMs: () => 5 })
+    await expect(client.list('sets/')).rejects.toThrow(/no answer within the time allowed on GET/)
+    expect(calls).toBe(2)
+  })
+
+  it('budgets a minute plus the time a slow office line needs for the body', () => {
+    expect(requestBudgetMs(0)).toBe(60_000)
+    expect(requestBudgetMs(14.5 * 1024 * 1024)).toBe(60_000 + Math.ceil(14.5 * 1024) * 4)
+    expect(requestBudgetMs(500 * 1024 * 1024)).toBeGreaterThan(30 * 60_000)
+  })
+
+  it('names a cause it has, and leaves a message it has not alone', () => {
+    expect(describeFailure(new Error('PUT x → 403. denied'))).toBe('PUT x → 403. denied')
+    expect(describeFailure(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET', message: 'read ECONNRESET' } })))
+      .toBe('fetch failed (ECONNRESET: read ECONNRESET)')
+    expect(describeFailure(Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' })))
+      .toBe('no answer within the time allowed')
   })
 })

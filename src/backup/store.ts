@@ -1,5 +1,5 @@
 import { loadSecrets, loadState, stateDir } from '../state/store.js'
-import { S3Client } from './s3.js'
+import { S3Client, type S3ClientOptions } from './s3.js'
 
 /**
  * Where the offsite copy goes.
@@ -115,6 +115,7 @@ export function s3StoreFrom(
 export function offsiteStore(
   dir = stateDir(),
   fetcher: typeof fetch = fetch,
+  options: S3ClientOptions = {},
 ): { store: OffsiteStore | null; reason?: string } {
   const settings = loadState(dir).settings
   if (!settings.backupOffsiteEnabled) return { store: null, reason: 'off' }
@@ -130,6 +131,7 @@ export function offsiteStore(
         secretAccessKey: secrets['S3_SECRET_ACCESS_KEY'] ?? '',
       },
       fetcher,
+      options,
     )
     const prefix = settings.backupS3Prefix
       ? `${settings.backupS3Prefix.replace(/^\/+|\/+$/g, '')}/`

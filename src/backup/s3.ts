@@ -149,31 +149,135 @@ export function signRequest(input: {
   }
 }
 
+/**
+ * How long one request may take before it is treated as stalled: a minute,
+ * plus four milliseconds per kilobyte of body. A link slower than 250 KB/s is
+ * a stall, not a slow link, and a 500 MB document still gets over half an hour.
+ *
+ * Without a budget a socket that stops answering holds the tick open for as
+ * long as the kernel is patient, which is hours, and every backup behind it.
+ */
+export function requestBudgetMs(bodyBytes: number): number {
+  return 60_000 + Math.ceil(bodyBytes / 1024) * 4
+}
+
+/**
+ * The pause before the one retry. Long enough to outlast a resolver blink or
+ * a connection reset while an image is pulling next door; short enough that
+ * a tick with a retry in it still finishes well inside the next one.
+ */
+export const RETRY_AFTER_MS = 20_000
+
+export interface S3ClientOptions {
+  /** Replaces the wait before the retry; tests pass one that records and returns. */
+  readonly pause?: (ms: number) => Promise<void>
+  /** Replaces the per-request budget; tests pass a tiny one. */
+  readonly budgetMs?: (bodyBytes: number) => number
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms).unref()
+  })
+
+/** 429 and the 5xx family pass; everything else a store says, it means. */
+const passes = (status: number): boolean => status === 429 || status >= 500
+
+/**
+ * Why a request never got an answer, in the words the audit will show.
+ *
+ * `fetch` reports every network failure as `TypeError: fetch failed` and puts
+ * the reason -- `ENOTFOUND`, `ECONNRESET`, a connect timeout -- on `cause`,
+ * which the trail dropped. Eight rows on a firm's box read "fetch failed" and
+ * nothing else, and whether the resolver blinked or the line was saturated
+ * by an image pull was not recoverable afterwards. The code and the host
+ * travel now.
+ */
+export function describeFailure(error: unknown): string {
+  if (!(error instanceof Error)) return String(error)
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'no answer within the time allowed'
+  const cause = (error as Error & { cause?: unknown }).cause
+  if (cause && typeof cause === 'object') {
+    const c = cause as { code?: string; name?: string; message?: string; hostname?: string }
+    const code = c.code ?? c.name ?? 'unknown'
+    const where = c.hostname ? ` ${c.hostname}` : ''
+    const message = c.message && c.message !== code ? `: ${c.message}` : ''
+    return `${error.message} (${code}${where}${message})`
+  }
+  return error.message
+}
+
 /** The smallest client that serves the offsite copy: put, head, list, get. */
 export class S3Client {
+  private readonly pause: (ms: number) => Promise<void>
+  private readonly budgetMs: (bodyBytes: number) => number
+
   constructor(
     private readonly config: S3Config,
     private readonly fetcher: typeof fetch = fetch,
-  ) {}
+    options: S3ClientOptions = {},
+  ) {
+    this.pause = options.pause ?? sleep
+    this.budgetMs = options.budgetMs ?? requestBudgetMs
+  }
 
-  static from(config: S3Config, fetcher: typeof fetch = fetch): S3Client {
+  static from(config: S3Config, fetcher: typeof fetch = fetch, options: S3ClientOptions = {}): S3Client {
     for (const [name, value] of Object.entries(config)) {
       if (!value) throw new Error(`S3 is not configured: ${name} is empty.`)
     }
-    return new S3Client(config, fetcher)
+    return new S3Client(config, fetcher, options)
   }
 
   private path(key: string): string {
     return `/${this.config.bucket}/${key}`
   }
 
-  private async send(signed: SignedRequest, method: string, body?: Buffer): Promise<Response> {
-    const response = await this.fetcher(signed.url, {
-      method,
-      headers: signed.headers,
-      ...(body ? { body: new Uint8Array(body) } : {}),
-    })
-    if (!response.ok) {
+  /**
+   * One request, and one more twenty seconds later when the failure is the
+   * kind that passes: no answer at all, a 429, a 5xx. A 403 is not retried --
+   * a wrong signature is wrong twice -- and neither is a 404, which is an
+   * answer.
+   *
+   * One retry, not a schedule. The tick is the schedule: it comes back in five
+   * minutes whatever happened here, and the retry exists only so that a blip
+   * shorter than the pause costs nothing at all.
+   */
+  private async request(
+    method: string,
+    signed: SignedRequest,
+    body?: Buffer,
+    accept: (status: number) => boolean = () => false,
+  ): Promise<Response> {
+    const attempt = (): Promise<Response> =>
+      this.fetcher(signed.url, {
+        method,
+        headers: signed.headers,
+        ...(body ? { body: new Uint8Array(body) } : {}),
+        signal: AbortSignal.timeout(this.budgetMs(body?.length ?? 0)),
+      })
+    const where = `${method} ${new URL(signed.url).pathname}`
+    const unanswered = (error: unknown) => new Error(`${describeFailure(error)} on ${where}`)
+
+    let response: Response
+    try {
+      response = await attempt()
+    } catch {
+      await this.pause(RETRY_AFTER_MS)
+      try {
+        response = await attempt()
+      } catch (again) {
+        throw unanswered(again)
+      }
+    }
+    if (!response.ok && !accept(response.status) && passes(response.status)) {
+      await this.pause(RETRY_AFTER_MS)
+      try {
+        response = await attempt()
+      } catch (again) {
+        throw unanswered(again)
+      }
+    }
+    if (!response.ok && !accept(response.status)) {
       const text = (await response.text().catch(() => '')).slice(0, 300)
       throw new Error(`${method} ${signed.url} → ${response.status}. ${text}`)
     }
@@ -191,7 +295,7 @@ export class S3Client {
       payloadHash: sha256(body),
       extraHeaders: { 'content-type': contentType, 'content-length': String(body.length) },
     })
-    await this.send(signed, 'PUT', body)
+    await this.request('PUT', signed, body)
   }
 
   /**
@@ -239,7 +343,7 @@ export class S3Client {
         query,
         payloadHash: sha256(''),
       })
-      const xml = await (await this.send(signed, 'GET')).text()
+      const xml = await (await this.request('GET', signed)).text()
 
       for (const match of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
         const block = match[1] ?? ''
@@ -264,7 +368,7 @@ export class S3Client {
       path: this.path(key),
       payloadHash: sha256(''),
     })
-    const response = await this.send(signed, 'GET')
+    const response = await this.request('GET', signed)
     mkdirSync(dirname(toPath), { recursive: true })
     writeFileSync(toPath, Buffer.from(await response.arrayBuffer()))
   }
@@ -276,11 +380,8 @@ export class S3Client {
       path: this.path(key),
       payloadHash: sha256(''),
     })
-    const response = await this.fetcher(signed.url, { method: 'DELETE', headers: signed.headers })
     // 204 on success, 404 when it was already gone; neither is a problem.
-    if (!response.ok && response.status !== 404) {
-      throw new Error(`DELETE ${key} → ${response.status}`)
-    }
+    await this.request('DELETE', signed, undefined, (status) => status === 404)
   }
 
   /** One cheap call that proves the credentials and the bucket, for the panel. */

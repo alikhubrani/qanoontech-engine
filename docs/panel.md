@@ -198,9 +198,20 @@ panel's, applied server-side, once. Every event carries a `kind`:
 | kind | examples | shown on Overview |
 |---|---|---|
 | `security` | login, login-failed, logout, sign-out-everyone, auth changes | yes |
-| `change` | deploy, rollback, module enabled/configured, settings, restore, engine update | yes |
-| `failure` | backup-failed, offsite-failed, snapshot-failed, restore-failed, backup-stale, alert-sent | yes |
+| `change` | deploy, rollback, module enabled/configured, settings, restore, engine update, an offsite copy working again | yes |
+| `failure` | backup-failed, offsite-failed, documents-sync-failed, snapshot-failed, restore-failed, backup-stale, alert-sent | yes |
 | `routine` | backup-taken, offsite-uploaded, documents-synced, offsite-fetched, snapshot-copied | no |
+
+An offsite copy that could not reach the store is not a failure until it has
+lasted. Since 0.26 the S3 client gives every request a deadline, retries once
+after twenty seconds when nothing answered or the store said 5xx, and names
+the cause (`ENOTFOUND host`, `ECONNRESET`, "no answer within the time
+allowed") instead of Node's bare "fetch failed". The tick then counts failed
+ticks per copy — sets, documents, engine snapshot — and writes `*-failed`
+only on the third in a row (a quarter of an hour), with when the run began
+and the last reason, and `*-recovered` when a reported run ends. A firm's box
+wrote eight failure rows in one day under the old rule, every one healed by
+the next tick; under this one it would have written none.
 
 The Activity page shows all kinds, filterable, newest first, paged by
 timestamp. Labels come from the same catalogue as the kinds, so no raw slug

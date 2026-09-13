@@ -1,14 +1,16 @@
 import { existsSync } from 'node:fs'
+import type { Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import cookie from '@fastify/cookie'
 import fastifyStatic from '@fastify/static'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify'
 import { loadState, stateDir } from '../state/store.js'
 import { engineVersion } from '../version.js'
 import { AuditLog } from './audit.js'
 import { AuthStore } from './auth.js'
 import type { ServerContext } from './context.js'
+import { loggedUrl } from './log-url.js'
 import { checkHost, checkOrigin, defaultAllowedHosts, hostOfRedirect, refuse } from './guards.js'
 import { startBackupLoop } from './backup-tick.js'
 import { JobRunner } from './jobs.js'
@@ -77,7 +79,26 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     engineVersion: engineVersion(),
   }
 
-  const app = Fastify({ logger: options.logger ?? true })
+  /*
+   * The request line is Fastify's, minus the sign-in code: see log-url.ts.
+   * Typed by hand because an inline object here makes Fastify's overloads
+   * pick the HTTP/2 server and every route below stops type-checking.
+   */
+  const logger: FastifyServerOptions['logger'] =
+    options.logger === false
+      ? false
+      : {
+          serializers: {
+            req: (request: FastifyRequest) => ({
+              method: request.method,
+              url: loggedUrl(request.url),
+              host: request.host,
+              remoteAddress: request.ip,
+              remotePort: request.socket?.remotePort,
+            }),
+          },
+        }
+  const app = Fastify<Server>({ logger })
   app.register(cookie)
   // Who is asking, once the session hook has said. Declared in context.ts.
   app.decorateRequest('operator', undefined)

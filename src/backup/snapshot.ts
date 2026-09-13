@@ -373,21 +373,6 @@ export async function reconcileSnapshot(
 }
 
 /**
- * Whether a push outcome is worth a line in the audit, given the last one.
- *
- * A successful copy is not: the marker records it, and recording it in the
- * trail the snapshot carries is what sent it twelve times an hour. A failure
- * is, once — on the way in, the way `backup-stale` is — because a store that
- * is down for a night is one fact, not 96 of them.
- */
-export function snapshotAuditEvent(
-  outcome: Pick<SnapshotOutcome, 'ok'>,
-  wasFailing: boolean,
-): 'snapshot-failed' | null {
-  return !outcome.ok && !wasFailing ? 'snapshot-failed' : null
-}
-
-/**
  * Fetch and open the snapshot. The first half of recovery.
  */
 export async function fetchSnapshot(

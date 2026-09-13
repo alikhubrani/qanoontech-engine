@@ -1052,6 +1052,13 @@ program
     }
 
     /*
+     * The panel's deploy writes this row and the shell's did not, so a box
+     * updated over ssh showed pre-update backups with no deploy between them.
+     */
+    const { AuditLog } = await import('./server/audit.js')
+    new AuditLog().record('deploy-started', { detail: 'From the shell.' })
+
+    /*
      * Log the daemon in before anything reaches the registry.
      *
      * The web path does this (server/jobs.ts) and this one did not, so an

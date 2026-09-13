@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readSnapshotMarker, reconcileSnapshot, snapshotAuditEvent } from './snapshot.js'
+import { readSnapshotMarker, reconcileSnapshot } from './snapshot.js'
 import type { OffsiteObject, OffsiteStore } from './store.js'
 
 /**
@@ -37,17 +37,6 @@ function fakeStore(has: boolean): OffsiteStore & { stats: number } {
   }
   return store
 }
-
-describe('snapshotAuditEvent', () => {
-  it('records nothing for a successful copy — the marker is the record', () => {
-    expect(snapshotAuditEvent({ ok: true }, false)).toBeNull()
-  })
-
-  it('records a failure once, on the way in, not on every tick', () => {
-    expect(snapshotAuditEvent({ ok: false }, false)).toBe('snapshot-failed')
-    expect(snapshotAuditEvent({ ok: false }, true)).toBeNull()
-  })
-})
 
 describe('reconcileSnapshot', () => {
   const marker = (verifiedAt?: string) =>

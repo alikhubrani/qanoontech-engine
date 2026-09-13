@@ -119,7 +119,7 @@ describe('uploading a set', () => {
     localSet('2026-09-03T02-00-00Z')
     const dead = (async () => new Response('no', { status: 500 })) as unknown as typeof fetch
 
-    const outcome = await uploadSet('2026-09-03T02-00-00Z', dir, dead)
+    const outcome = await uploadSet('2026-09-03T02-00-00Z', dir, dead, { pause: async () => {} })
     expect(outcome.ok).toBe(false)
     const record = readOffsite('2026-09-03T02-00-00Z', dir)
     expect(record.lastError).toBeTruthy()
@@ -285,7 +285,7 @@ describe('reconciling what we believe against what is there', () => {
     localSet('2026-09-03T02-00-00Z')
     markSent('2026-09-03T02-00-00Z')
     const broken = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch
-    const result = await reconcileOffsite(dir, broken)
+    const result = await reconcileOffsite(dir, broken, { pause: async () => {} })
     expect(result.corrected).toEqual([])
     expect(readOffsite('2026-09-03T02-00-00Z', dir).uploadedAt).not.toBe('')
   })
