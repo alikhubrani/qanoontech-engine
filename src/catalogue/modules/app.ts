@@ -65,6 +65,10 @@ export const app = defineModule({
         // the first deploy generates it, and until then the application uses
         // the pair it made for itself.
         ...vapidEnvironment(ctx.optionalSecret('VAPID_PUBLIC_KEY'), ctx.optionalSecret('VAPID_PRIVATE_KEY'), settings.alertEmail),
+        // Where the application's own messages link to. Unset until the
+        // firm names its address; the application then links to the address
+        // each request came to instead.
+        ...(settings.publicUrl ? { APP_PUBLIC_URL: settings.publicUrl.replace(/\/+$/, '') } : {}),
         UPLOAD_DIR: '/app/uploads',
         MAX_FILE_SIZE: String(settings.maxFileSizeBytes),
         BCRYPT_ROUNDS: '12',

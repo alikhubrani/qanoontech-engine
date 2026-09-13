@@ -30,6 +30,7 @@ const settingsPatchSchema = z.object({
   backupS3Region: z.string().optional(),
   backupS3Prefix: z.string().optional(),
   alertEmail: z.string().optional(),
+  publicUrl: z.union([z.literal(''), z.string().url().max(200)]).optional(),
 })
 
 /**

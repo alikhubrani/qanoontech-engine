@@ -166,6 +166,13 @@ const settingsSchema = z.object({
    * goes quiet at exactly the moment it is worth having.
    */
   alertEmail: z.string().default(''),
+  /**
+   * The address the firm reaches the application at -- `https://cases.firm.sa`
+   * -- handed to the application as APP_PUBLIC_URL so the messages it sends
+   * can link back to the case, the task, the hearing. Empty means unknown,
+   * and the application falls back to the address each request came to.
+   */
+  publicUrl: z.string().default(''),
 })
 
 const stateSchema = z.object({

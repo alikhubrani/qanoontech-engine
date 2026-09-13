@@ -46,6 +46,7 @@ program
     console.log(`version        ${state.version}`)
     if (state.previousVersion) console.log(`previous       ${state.previousVersion}`)
     console.log(`address        ${state.settings.bindAddress}:${state.settings.appPort}`)
+    if (state.settings.publicUrl) console.log(`public url     ${state.settings.publicUrl}`)
     console.log(`secrets set    ${Object.keys(secrets).length}`)
     console.log(
       `modules on     ${[...REQUIRED_MODULE_IDS, ...state.enabled].join(', ') || '(none)'}`,

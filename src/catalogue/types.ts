@@ -108,6 +108,8 @@ export interface DeploymentSettings {
   readonly maxFileSizeBytes: number
   /** Where the engine's own alerts go; also the Web Push contact. */
   readonly alertEmail?: string
+  /** The address the firm reaches the application at, for links in its messages. */
+  readonly publicUrl?: string
 }
 
 /**

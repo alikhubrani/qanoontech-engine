@@ -58,7 +58,12 @@ export function Settings() {
       {tab === 'registry' && <RegistryTab onError={setError} />}
       {tab === 'credentials' && <CredentialsTab onError={setError} />}
       {tab === 'alerts' && <AlertsTab onError={setError} />}
-      {tab === 'engine' && <EngineTab />}
+      {tab === 'engine' && (
+        <>
+          <PublicUrlSection onError={setError} />
+          <EngineTab />
+        </>
+      )}
     </Page>
   )
 }
@@ -560,6 +565,47 @@ function AlertsTab({ onError }: { onError: (message: string | null) => void }) {
  * reported version changes; an update whose pull fails leaves the old engine
  * answering on the old number, and saying so is the failure report.
  */
+function PublicUrlSection({ onError }: { onError: (message: string | null) => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void api
+      .get<{ settings: { publicUrl?: string } }>('/api/settings')
+      .then((data) => setUrl(data.settings.publicUrl ?? ''))
+      .catch(() => setUrl(''))
+  }, [])
+
+  if (url === null) return null
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    onError(null)
+    try {
+      await api.put('/api/settings', { publicUrl: (url ?? '').trim() })
+      toast.success(S.settingsSaved)
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section title={S.publicUrlTitle} description={S.publicUrlExplainer}>
+      <form onSubmit={save} className="space-y-5">
+        <Field label={S.publicUrlLabel} help={S.publicUrlHelp}>
+          <Input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" autoComplete="off" dir="ltr" />
+        </Field>
+        <Button type="submit" disabled={busy}>
+          {busy ? S.workingEllipsis : S.settingsSave}
+        </Button>
+      </form>
+    </Section>
+  )
+}
+
 function EngineTab() {
   const [running, setRunning] = useState<string | null>(null)
   const [available, setAvailable] = useState<string[]>([])

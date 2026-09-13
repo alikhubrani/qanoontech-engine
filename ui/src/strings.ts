@@ -363,6 +363,11 @@ export const S = {
   alertsEmailHelp: 'Uses the SMTP settings of the email module.',
   alertsLast: (level: string, at: string, ago: string) => `Backups are ${level}. The last alert went out ${at} (${ago}).`,
   alertsNever: 'No alert has been sent.',
+  publicUrlTitle: 'Address',
+  publicUrlExplainer:
+    'Where the firm reaches the system, for the links inside the messages it sends — a hearing reminder links to the hearing, a task to the task. Leave it empty and each message links to the address the request came from.',
+  publicUrlLabel: 'Public address',
+  publicUrlHelp: 'Scheme and host, as typed in a browser: https://cases.firm.sa',
   engineTitle: 'Engine',
   engineExplainer: 'The panel itself. Updating it restarts this page for a few seconds; the firm’s system is not touched.',
   engineRunning: 'Running version',
