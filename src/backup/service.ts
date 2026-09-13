@@ -6,6 +6,7 @@ import * as docker from '../docker/index.js'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 import { loadSecrets, loadState, stateDir } from '../state/store.js'
 import { databaseTarget } from './target.js'
+import { appImage } from '../catalogue/modules/app.js'
 
 /**
  * Backups: a nightly set on the engine's own volume, and the way back.
@@ -446,7 +447,8 @@ export async function restoreBackup(
    */
   const tarPath = join(backupsRoot(dir), id, 'uploads.tar.gz')
   if (set.includesUploads && existsSync(tarPath)) {
-    const extract = await docker.restoreUploads(containerPath(id, 'uploads.tar.gz'))
+    const owner = await docker.appOwner(appImage(state.version))
+    const extract = await docker.restoreUploads(containerPath(id, 'uploads.tar.gz'), owner)
     steps.push({ step: 'restore-documents', ok: extract.code === 0, detail: 'from this set\'s archive' })
     if (extract.code !== 0) return { ok: false, steps }
   } else {

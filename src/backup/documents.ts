@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as docker from '../docker/index.js'
-import { stateDir } from '../state/store.js'
+import { loadState, stateDir } from '../state/store.js'
+import { appImage } from '../catalogue/modules/app.js'
 import { offsiteStore, type OffsiteStore } from './store.js'
 
 /**
@@ -268,7 +269,12 @@ export async function restoreDocuments(
     for (const file of missing) {
       await target.get(`${DOCUMENTS_PREFIX}${file.path}`, join(stageDir, file.path))
     }
-    const back = await docker.unstageUploads(`/state/${stageName}`)
+    /*
+     * Owned by the application, not by the helper that wrote them. Derived
+     * from the image so a change to its user is not a change here.
+     */
+    const owner = await docker.appOwner(appImage(loadState(dir).version))
+    const back = await docker.unstageUploads(`/state/${stageName}`, owner)
     if (back.code !== 0) {
       return {
         ok: false, fetched: 0, alreadyThere: wanted.length - missing.length,
@@ -279,7 +285,9 @@ export async function restoreDocuments(
       ok: true,
       fetched: missing.length,
       alreadyThere: wanted.length - missing.length,
-      detail: `${missing.length} document(s) restored from ${target.label}; ${wanted.length - missing.length} already in place.`,
+      detail:
+        `${missing.length} document(s) restored from ${target.label}; ${wanted.length - missing.length} already in place.` +
+        (owner ? '' : ' Ownership was not set: the application image could not be run.'),
     }
   } catch (error) {
     return {

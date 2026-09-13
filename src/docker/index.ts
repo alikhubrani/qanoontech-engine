@@ -528,8 +528,54 @@ export async function stageUploads(
 }
 
 /** Put documents back, from a directory the engine filled. */
+/**
+ * Who the application runs as, asked of its image.
+ *
+ * Derived rather than typed in. The Dockerfile says `adduser --uid 1001
+ * nextjs`, which is a contract — but the running gid is whatever `adduser
+ * --system` chose, and a number copied into this file is a number that is
+ * wrong the day the Dockerfile changes. The image knows; ask it.
+ *
+ * `undefined` when the image cannot be run, so a restore can still complete
+ * and *say* the ownership was not set, rather than fail outright.
+ */
+export async function appOwner(image: string, options?: DockerOptions): Promise<string | undefined> {
+  const result = await run(
+    'docker',
+    ['run', '--rm', '--entrypoint', 'sh', image, '-c', 'id -u && id -g'],
+    options,
+  )
+  if (result.code !== 0) return undefined
+  const [uid, gid] = result.stdout.trim().split('\n').map((s) => s.trim())
+  const owner = `${uid}:${gid}`
+  return OWNER_PATTERN.test(owner) ? owner : undefined
+}
+
+/** `uid:gid`, digits only. It is interpolated into a shell command, so it is a shape and never free text. */
+const OWNER_PATTERN = /^\d{1,10}:\d{1,10}$/
+
+/**
+ * The write half of every documents helper, as one string.
+ *
+ * `chown` after the copy, and the reason is the bug this fixed: the helper
+ * runs as root, so everything it writes is root's. The application runs as
+ * uid 1001. A recovered box listed all eighty of its documents and could not
+ * accept a new one — reads succeed on 644, writes fail on a 755 directory
+ * root owns — and the acceptance test had checked the count and never tried
+ * an upload. A restored archive that cannot be written to is a read-only
+ * copy of a firm's work, which is not what "restored" means.
+ *
+ * Exported so the shape is tested without a Docker daemon.
+ */
+export function uploadsWriteScript(copy: string, owner: string | undefined): string {
+  if (owner === undefined) return copy
+  if (!OWNER_PATTERN.test(owner)) throw new Error(`Not an owner: ${owner}`)
+  return `${copy} && chown -R ${owner} /uploads`
+}
+
 export async function unstageUploads(
   stageDir: string,
+  owner?: string,
   options?: DockerOptions,
 ): Promise<CommandResult> {
   return run(
@@ -540,13 +586,17 @@ export async function unstageUploads(
       '--volume', `${ENGINE_VOLUME}:/state:ro`,
       BUSYBOX_HELPER_IMAGE,
       'sh', '-c',
-      `cp -a ${stageDir}/. /uploads/`,
+      uploadsWriteScript(`cp -a ${stageDir}/. /uploads/`, owner),
     ],
     options,
   )
 }
 
-export async function restoreUploads(inPath: string, options?: DockerOptions): Promise<CommandResult> {
+export async function restoreUploads(
+  inPath: string,
+  owner?: string,
+  options?: DockerOptions,
+): Promise<CommandResult> {
   return run(
     'docker',
     [
@@ -555,7 +605,7 @@ export async function restoreUploads(inPath: string, options?: DockerOptions): P
       '--volume', `${ENGINE_VOLUME}:/state:ro`,
       BUSYBOX_HELPER_IMAGE,
       'sh', '-c',
-      `tar xzf ${inPath} -C /uploads`,
+      uploadsWriteScript(`tar xzf ${inPath} -C /uploads`, owner),
     ],
     options,
   )

@@ -9,13 +9,20 @@ import { defineModule } from '../types.js'
  * take effect. The client uses the relative path /api, which nginx proxies on
  * the same origin — correct on any hostname, including through the tunnel.
  */
+const APP_IMAGE_REPOSITORY = 'ghcr.io/alikhubrani/qanoontech'
+
+/** The application image at a version — the one string everything that needs it shares. */
+export function appImage(version: string): string {
+  return `${APP_IMAGE_REPOSITORY}:${version}`
+}
+
 export const app = defineModule({
   id: 'app',
   title: 'QanoonTech',
   summary: 'The application itself. Cases, clients, documents, tasks.',
   required: true,
   defaultEnabled: true,
-  image: { kind: 'versioned', repository: 'ghcr.io/alikhubrani/qanoontech' },
+  image: { kind: 'versioned', repository: APP_IMAGE_REPOSITORY },
   cost: { image: '~600 MB', memory: '2G', cpus: '2' },
   requires: ['postgres'],
   config: z.void(),
@@ -33,7 +40,7 @@ export const app = defineModule({
     const { settings } = ctx
     const dbPassword = ctx.secret('DB_PASSWORD')
     return {
-      image: `ghcr.io/alikhubrani/qanoontech:${ctx.version}`,
+      image: appImage(ctx.version),
       restart: 'unless-stopped',
       environment: {
         // The stored URL when the database is elsewhere, else the compose

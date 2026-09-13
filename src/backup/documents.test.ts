@@ -14,6 +14,7 @@ vi.mock('../docker/index.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../docker/index.js')>()
   return {
     ...original,
+    appOwner: vi.fn(async () => '1001:65533'),
     listUploads: vi.fn(async () => ({
       code: 0,
       stdout: volume.map((f) => `${f.size} ${f.path}`).join('\n') + '\n',

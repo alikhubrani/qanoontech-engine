@@ -40,6 +40,7 @@ vi.mock('../docker/index.js', async (importOriginal) => {
   const containerToHost = (dir: string, path: string) => join(dir, path.replace('/state/', ''))
   return {
     ...original,
+    appOwner: vi.fn(async () => '1001:65533'),
     // The helpers "write" their outputs so sizes and manifests are real.
     dumpDatabase: vi.fn(async (_target: unknown, outPath: string) => {
       writeFileSync(containerToHost(process.env['TEST_DIR']!, outPath), gzipSync(SAMPLE_DUMP))

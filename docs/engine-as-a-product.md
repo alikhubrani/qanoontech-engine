@@ -243,7 +243,28 @@ Then `engine recover`: endpoint, bucket, two keys, passphrase → state, compose
 newest backup set, documents, up, and a `backup drill` at the end to prove what
 it restored.
 
-**Acceptance — PASSED 2026-09-13, by full teardown on `.106`.**
+**Acceptance — PASSED 2026-09-13 by full teardown on `.106`; AMENDED the same
+day, because it had only half passed.**
+
+The table below was true and incomplete. Every count matched, the application
+served, and the recovered box **could not accept a new document**: the helper
+that writes restored files runs as root, so every directory came back
+`root:root 755`, and the application runs as uid 1001. Reads succeed on 644,
+which is exactly why eighty documents listed cleanly and nothing looked wrong.
+Writes into a directory root owns fail. The acceptance had checked the count of
+documents and never tried to add one — a record trusted over the thing it
+describes, and this time the record was this table.
+
+Found by accident, while measuring request latency: a probe against
+`/api/documents` returned 503s that turned out to be nginx's rate limiter, and
+the diagnosis of *that* happened to list the volume's ownership. Fixed by
+deriving the application's uid:gid from its image and handing ownership over
+after every restore, on both the archive path and the index path. Repaired
+live on `.106` with the same `chown`, and writes succeeded at every level.
+
+**Added to the criteria: after recovery, upload a document through the
+application and open it.** A count is not a capability.
+
 
 The whole deployment was destroyed: six containers removed, all five volumes
 deleted (engine state, database, uploads, logs, fonts), and every image pulled
