@@ -265,6 +265,14 @@ live on `.106` with the same `chown`, and writes succeeded at every level.
 **Added to the criteria: after recovery, upload a document through the
 application and open it.** A count is not a capability.
 
+*Run 2026-09-13 on `.106` after the fix, as a real sequence rather than a
+unit test:* the volume was forced back to `root:root`; one `backup restore`
+ran the archive path; the root, every directory and every file came out
+`1001:65533`; the application wrote to the tree as uid 1001; and a file
+uploaded through `POST /api/files/upload` returned **201** and landed on the
+volume as `-rw-r--r-- 1001 65533` in a `2026/09/13/` directory the application
+had just created. Both restore paths carry the change and both boxes run it.
+
 
 The whole deployment was destroyed: six containers removed, all five volumes
 deleted (engine state, database, uploads, logs, fonts), and every image pulled
