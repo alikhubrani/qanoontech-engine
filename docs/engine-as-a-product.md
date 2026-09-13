@@ -557,6 +557,25 @@ record is never trusted over the thing it describes** — the verdict on the
 overview is computed at request time by the same function the CLI uses, never
 read from a stored conclusion.
 
+**0.20 shipped 2026-09-13.** Engine: the snapshot loop closed (a copy is no
+longer an audit event; the store is asked four times a day instead), an audit
+catalogue with kinds, `assessDeployment()` behind both `/api/overview` and
+`engine status`, a probed Database row, sessions that know who they belong to.
+Panel: the product's design system, real routes, the dark sidebar, and the
+Overview, Activity and Services pages rebuilt; Deploy, Backups and Settings
+re-skinned onto the same components with every Drive string gone.
+
+Acceptance, on staging (`v0.20.0-rc.1`): removing the offsite secret key
+flipped the CLI verdict and the overview to *At risk — Offsite storage is not
+usable* within one poll, and restoring it flipped both back to *Protected*;
+the first tick after the update copied the snapshot once and wrote no audit
+line for it, where the previous engine wrote twelve an hour; every page fits
+at 1440 px with no horizontal scrollbar; the row menus, confirm dialogs, logs
+sheet and module sheet open and close; signing out and back in shows the
+operator's name and account at the foot of the sidebar and both events in the
+feed. Not verified: the 1024 px pass, because the browser tool could not
+change the viewport; the layout is grid-based and is expected to hold.
+
 ### Then, and separately — the application's query patterns
 
 **Before anything moves, not after.** `server/services/case.service.ts` alone

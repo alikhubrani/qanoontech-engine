@@ -1,6 +1,6 @@
 # The panel
 
-**Status: proposed 2026-09-13 — Phase 6 of `engine-as-a-product.md`.** This
+**Status: 0.20 (foundations and assurance) shipped 2026-09-13; 0.21 and 0.22 proposed — Phase 6 of `engine-as-a-product.md`.** This
 is the standing description of what the panel is for and how it is put
 together. It was written after reviewing every page of engine 0.19.3 in a
 browser at 1440 px, with the source open beside each screenshot; the review's
