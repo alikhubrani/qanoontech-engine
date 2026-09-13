@@ -614,6 +614,13 @@ a session without a subject with 409), because the browser tool could not
 type into the textarea. The parity table in `docs/panel.md` has no row left
 that says "nobody built it".
 
+**Phase 3's rollback path closed 2026-09-13.** The `qanoontech_postgres_data`
+volume and the `postgres:15-alpine` image were removed from both boxes, with
+no container using either and `database status` reporting the external
+server on each. Going back to a local database from here means
+`database use-local` and a restore, not the old volume. The bucket's
+lifecycle rule is scoped to `backups/`, thirty days, on both.
+
 ### Then, and separately — the application's query patterns
 
 **Before anything moves, not after.** `server/services/case.service.ts` alone
