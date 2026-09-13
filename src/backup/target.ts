@@ -114,6 +114,26 @@ export function databaseTarget(
   }
 }
 
+/**
+ * Whether an sslmode makes the *application's* driver insist on TLS.
+ *
+ * `prefer` means two different things. To libpq — psql, pg_dump, every helper
+ * the engine runs — it means "try TLS, fall back to plain". To node-postgres,
+ * which the application's entrypoint uses to wait for the database, it is an
+ * alias for `verify-full`: no fallback, and a server with `ssl = off` is
+ * refused with "The server does not support SSL connections". The driver
+ * prints a warning saying exactly this.
+ *
+ * So the engine's own probe passed and the application it had just configured
+ * could not connect, and the entrypoint's loop said "PostgreSQL is
+ * unavailable" for twenty minutes because it discards the error. `database
+ * use` now asks the server whether it has TLS and refuses these modes when it
+ * does not — the question the application will ask, not the one libpq would.
+ */
+export function sslmodeDemandsTls(sslmode: string): boolean {
+  return ['prefer', 'require', 'verify-ca', 'verify-full'].includes(sslmode)
+}
+
 /** Whether the database lives outside this deployment's compose file. */
 export function databaseIsExternal(dir = stateDir()): boolean {
   return Boolean(loadSecrets(dir)[DATABASE_URL])

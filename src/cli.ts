@@ -609,6 +609,25 @@ database
     if (probe.code !== 0) {
       fail(`Could not connect: ${(probe.stderr || '').trim().slice(0, 300)}\nNothing was changed.`)
     }
+    /*
+     * The application's driver is not libpq. node-postgres treats
+     * `sslmode=prefer` as `verify-full` and will not fall back, so a URL that
+     * every engine helper is happy with can leave the application unable to
+     * connect at all — found on staging, where the entrypoint's wait loop
+     * reported "PostgreSQL is unavailable" over an SSL mismatch it had hidden.
+     * Ask the server, and refuse here, with the two honest ways out.
+     */
+    const { sslmodeDemandsTls } = await import('./backup/target.js')
+    if (sslmodeDemandsTls(parsed.target.sslmode)) {
+      const ssl = await docker.psqlQuery(parsed.target, 'SHOW ssl')
+      if (ssl.code === 0 && ssl.stdout.trim() === 'off') {
+        fail(
+          `The server has ssl = off, but the URL says sslmode=${parsed.target.sslmode}. The engine's tools would fall back to plain text; the application's driver will not, and would refuse to connect.\n` +
+            `Either use sslmode=disable (true to what this server offers) or turn ssl on in the server first.\nNothing was changed.`,
+        )
+      }
+    }
+
     // Drill needs to create a scratch database; refuse a role that cannot,
     // here, rather than at the first drill on the new server.
     const can = await docker.psqlQuery(parsed.target, 'SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user')

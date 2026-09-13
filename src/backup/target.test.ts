@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadState, saveSecrets, saveState } from '../state/store.js'
-import { databaseIsExternal, databaseTarget, parseDatabaseUrl } from './target.js'
+import { databaseIsExternal, databaseTarget, parseDatabaseUrl, sslmodeDemandsTls } from './target.js'
 
 /**
  * One function decides where the database is, and every helper trusts it. So
@@ -96,5 +96,17 @@ describe('the deployment’s target', () => {
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.detail).toContain('DB_PASSWORD')
+  })
+})
+
+describe('which sslmodes the application will insist on', () => {
+  it('names the modes node-postgres treats as verify-full', () => {
+    // libpq falls back from `prefer`; node-postgres does not. A server with
+    // ssl off is fine for the engine's helpers and fatal to the application.
+    for (const mode of ['prefer', 'require', 'verify-ca', 'verify-full']) {
+      expect(sslmodeDemandsTls(mode), mode).toBe(true)
+    }
+    expect(sslmodeDemandsTls('disable')).toBe(false)
+    expect(sslmodeDemandsTls('allow')).toBe(false)
   })
 })
