@@ -416,8 +416,34 @@ both latent before it and both fatal to it:
   is off. The entrypoint, which had hidden the error behind `2>/dev/null` for
   twenty minutes, now prints it.
 
-Remaining: app 1.16.2 onto both boxes (it must land on `.18` *before* the
-switch, or the switch reproduces the nginx fault on the firm), then step 6.
+**Step 6 done 2026-09-13.** App 1.16.2 landed on `.18` first, gated on the
+nginx proof passing on `.106` with a *forced* new address (Docker had handed the
+recreated container the same one the first time, which proved nothing). Then
+the firm's switch, every step gated with rollback to the local module wired
+into the failure branch: pre-switch set taken and drilled; `database use`
+proved the URL, `CREATEDB` and `ssl`; the set restored into
+`192.168.1.108:5434`; `apply` rendered without postgres; healthy through nginx
+with no 502; login 200; a backup **from the external server** verified and
+drilled at 49 tables; rows counted on `.108` itself: 4 users, 6 cases, 6
+clients, 20 documents. Latency p50 16–17 ms. The firm is on **PostgreSQL
+17.11** — the 15 → 17 move this section promised, free, because it was a
+dump-and-restore either way.
+
+Two things to know rather than discover:
+
+- The `postgres_data` volume on each box is kept and is the rollback:
+  `database use-local` and `apply` return to the local PG 15 with data as of
+  the switch. It is worth removing after a deliberate soak — a date, not a
+  feeling — and not before.
+- Each switch left one near-empty `pre-restore` set in the bucket. `restore`
+  takes a safety copy first, and by then the URL already pointed at the empty
+  external database. Harmless, self-pruning at 30 days, and the order cannot
+  simply be reversed because the restore has to know where to go.
+
+`.108` now holds staging and the firm on one VM beside unrelated services. The
+engine's hourly copy to R2 is unchanged — durability did not move with the
+data — but availability did: that VM is now a dependency of both deployments
+and of the demo. That is the trade the two-instance layout made explicit.
 
 **Postgres 15 → 17 rides along here, and only here.** Decided 2026-09-12.
 
