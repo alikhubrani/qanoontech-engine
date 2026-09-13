@@ -209,3 +209,26 @@ describe('a module turned on but never configured', () => {
     expect(problem?.message).not.toContain('expected object')
   })
 })
+
+/**
+ * A required module can be stood in for by something outside the deployment.
+ * `postgres` is required — the system is nothing without a database — but the
+ * database need not be a container here. Naming it as provided keeps it out of
+ * the plan and satisfies everything that requires it.
+ */
+describe('a required module provided from outside', () => {
+  it('is left out of the plan, and its dependants are satisfied', () => {
+    const result = resolve({ ...base, providedExternally: ['postgres'] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const ids = result.modules.map((m) => m.module.id)
+    expect(ids).not.toContain('postgres')
+    // app requires postgres and must not be refused for its absence.
+    expect(ids).toContain('app')
+  })
+
+  it('changes nothing when nothing is provided', () => {
+    const result = resolve({ ...base })
+    expect(result.ok && result.modules.map((m) => m.module.id)).toContain('postgres')
+  })
+})

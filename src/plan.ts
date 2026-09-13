@@ -5,6 +5,7 @@ import { resolve as resolveCatalogue, type Problem } from './catalogue/index.js'
 import { composeFilePath } from './docker/index.js'
 import { render, type RenderProblem } from './render/compose.js'
 import { loadSecrets, loadState, stateDir } from './state/store.js'
+import { databaseIsExternal } from './backup/target.js'
 
 /**
  * State on disk becomes a compose file, or the reasons it cannot.
@@ -27,6 +28,10 @@ export async function buildPlan(dir = stateDir()): Promise<PlanResult> {
   const resolution = resolveCatalogue({
     enabled: state.enabled,
     config: state.config,
+    // A stored DATABASE_URL means the database is somewhere else. The postgres
+    // module is not rendered, and app and email, which require it, are
+    // satisfied by the URL they will be handed instead.
+    providedExternally: databaseIsExternal(dir) ? ['postgres'] : [],
   })
 
   if (!resolution.ok) {

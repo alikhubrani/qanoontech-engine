@@ -102,6 +102,13 @@ export const email = defineModule({
   config,
   secrets: [
     {
+      name: 'DATABASE_URL',
+      title: 'Database URL',
+      help: 'Set only when the database lives outside this deployment — a VM, a managed service. Leave unset to use the postgres module. Configure it with `database use`, not here.',
+      kind: 'token',
+      optional: true,
+    },
+    {
       name: 'SMTP_PASSWORD',
       title: 'SMTP password',
       help: 'The password for the SMTP user, when authentication is basic. A relay that takes no credentials needs none, and Microsoft OAuth uses the client secret below instead.',
@@ -130,8 +137,9 @@ export const email = defineModule({
       // the *engine* that never holds a database connection, not this
       // container.
       DATABASE_URL:
+        ctx.optionalSecret('DATABASE_URL') ??
         `postgresql://${ctx.settings.dbUser}:${ctx.secret('DB_PASSWORD')}` +
-        `@postgres:5432/${ctx.settings.dbName}?schema=public`,
+          `@postgres:5432/${ctx.settings.dbName}?schema=public`,
       SMTP_HOST: ctx.config.smtpHost,
       SMTP_PORT: String(ctx.config.smtpPort),
       SMTP_SECURE: ctx.config.smtpSecure ? 'true' : 'false',

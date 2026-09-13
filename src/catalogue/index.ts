@@ -58,6 +58,13 @@ export interface ResolveInput {
   readonly enabled: readonly string[]
   /** Configuration per module id, as stored. Validated here, not before. */
   readonly config: Readonly<Record<string, unknown>>
+  /**
+   * Required modules that something outside this deployment is standing in
+   * for. `postgres` when a `DATABASE_URL` is stored: the database exists, it is
+   * simply not a container here. Such a module is not rendered, and anything
+   * that `requires` it is satisfied.
+   */
+  readonly providedExternally?: readonly string[]
 }
 
 /**
@@ -83,8 +90,9 @@ export function resolve(input: ResolveInput): Resolution {
 
   // Required modules are the system. Asking for them is redundant, and asking
   // for them to be absent is not a configuration, it is a broken deployment.
+  const provided = new Set(input.providedExternally ?? [])
   const wanted = new Set(input.enabled.filter((id) => findModule(id)))
-  for (const id of REQUIRED_MODULE_IDS) wanted.add(id)
+  for (const id of REQUIRED_MODULE_IDS) if (!provided.has(id)) wanted.add(id)
 
   /*
    * Every module in the catalogue is available to every deployment. Optional
@@ -98,7 +106,7 @@ export function resolve(input: ResolveInput): Resolution {
 
   for (const module of selected) {
     for (const dependency of module.requires) {
-      if (!selectedIds.has(dependency)) {
+      if (!selectedIds.has(dependency) && !provided.has(dependency)) {
         const known = findModule(dependency)
         problems.push({
           moduleId: module.id,

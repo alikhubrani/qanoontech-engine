@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import * as docker from '../docker/index.js'
-import { loadSecrets, loadState, stateDir } from '../state/store.js'
+import { stateDir } from '../state/store.js'
+import { databaseTarget } from './target.js'
 import { BACKUPS_DIR, listBackups } from './service.js'
 
 /**
@@ -59,10 +60,9 @@ export async function runDrill(
     return { ok: false, detail: id ? `No backup named ${id}.` : 'There are no backups to drill against.' }
   }
 
-  const state = loadState(dir)
-  const password = loadSecrets(dir)['DB_PASSWORD']
-  if (!password) return { ok: false, id: set.id, detail: 'No DB_PASSWORD is stored.' }
-  const target = { dbName: state.settings.dbName, dbUser: state.settings.dbUser, password }
+  const resolved = databaseTarget(dir)
+  if (!resolved.ok) return { ok: false, id: set.id, detail: resolved.detail }
+  const target = resolved.target
 
   const scratch = scratchName()
   const dumpPath = `/state/${BACKUPS_DIR}/${set.id}/database.sql.gz`

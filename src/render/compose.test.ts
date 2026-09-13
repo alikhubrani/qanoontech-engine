@@ -421,3 +421,36 @@ describe('render', () => {
     expect(mailer.depends_on.postgres).toEqual({ condition: 'service_healthy' })
   })
 })
+
+/**
+ * The database URL is handed on exactly as stored, and the postgres service is
+ * not rendered when there is one. The alternative — assembling a URL from
+ * settings while a different one is stored — is two sources of truth for
+ * where a firm's data is, which is one too many.
+ */
+describe('an external database', () => {
+  const external = 'postgresql://firm:s3cret@db.example.com:5433/qanoontech_firm?sslmode=require'
+
+  it('hands the stored URL to the application verbatim', () => {
+    const resolution = resolve({ enabled: [], config: {}, providedExternally: ['postgres'] })
+    if (!resolution.ok) throw new Error('unreachable')
+    const result = render({
+      modules: resolution.modules,
+      version: '1.0.2',
+      settings,
+      secrets: { ...secrets, DATABASE_URL: external },
+    })
+    if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
+    const doc = parse(result.yaml)
+    expect(doc.services.app.environment.DATABASE_URL).toBe(external)
+    expect(doc.services.postgres).toBeUndefined()
+    // And the app no longer waits on a service that is not there.
+    expect(doc.services.app.depends_on?.postgres).toBeUndefined()
+  })
+
+  it('assembles the local URL when none is stored', () => {
+    const doc = document()
+    expect(doc.services.app.environment.DATABASE_URL).toContain('@postgres:5432/')
+    expect(doc.services.postgres).toBeDefined()
+  })
+})

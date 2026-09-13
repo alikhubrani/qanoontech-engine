@@ -74,6 +74,8 @@ export function render(input: RenderInput): RenderResult {
       const value = input.secrets[name]
       return value !== undefined && value !== ''
     }
+    const optionalSecret = (name: string): string | undefined =>
+      isSet(name) ? (input.secrets[name] as string) : undefined
     const secret = (name: string): string => {
       if (!isSet(name)) throw new MissingSecret(name)
       return input.secrets[name] as string
@@ -89,6 +91,7 @@ export function render(input: RenderInput): RenderResult {
         settings: input.settings,
         config: config as never,
         secret,
+        optionalSecret,
         isEnabled: (id) => input.modules.some((m) => m.module.id === id),
       })
     } catch (error) {

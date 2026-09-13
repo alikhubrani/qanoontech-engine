@@ -555,6 +555,88 @@ program
   })
 
 // ---------------------------------------------------------------------------
+// Where the database is
+// ---------------------------------------------------------------------------
+
+/**
+ * One fact — is a `DATABASE_URL` stored — decides whether the database is the
+ * compose module or somewhere else. These commands set and unset that fact and
+ * say which way it currently points. Configured from a shell and never from
+ * the panel: pointing a running deployment at the wrong database is the kind of
+ * mistake that should require a terminal.
+ */
+const database = program.command('database').description('Where the application’s database is')
+
+database
+  .command('status')
+  .description('Which database this deployment uses, and whether it answers')
+  .action(async () => {
+    const { databaseTarget } = await import('./backup/target.js')
+    const resolved = databaseTarget()
+    if (!resolved.ok) fail(resolved.detail)
+    const t = resolved.target
+    console.log(`where          ${t.external ? 'external' : 'this deployment (the postgres module)'}`)
+    console.log(`host           ${t.host}:${t.port}`)
+    console.log(`database       ${t.dbName}`)
+    console.log(`user           ${t.dbUser}`)
+    if (t.external) console.log(`sslmode        ${t.sslmode}`)
+    const probe = await docker.psqlQuery(t, 'SELECT version()')
+    if (probe.code !== 0) {
+      console.log(`\nnot reachable — ${(probe.stderr || '').trim().slice(0, 200)}`)
+      process.exit(1)
+    }
+    console.log(`server         ${probe.stdout.trim().split(' ').slice(0, 2).join(' ')}`)
+  })
+
+database
+  .command('use')
+  .description('Use a database elsewhere. The URL is read from stdin and proven before it is stored')
+  .action(async () => {
+    const { parseDatabaseUrl, DATABASE_URL } = await import('./backup/target.js')
+    const { loadSecrets, saveSecrets } = await import('./state/store.js')
+
+    const url = readFileSync(0, 'utf8').trim()
+    if (url === '') fail('Nothing on stdin. Pipe the URL in.')
+    const parsed = parseDatabaseUrl(url)
+    if (!parsed.ok) fail(parsed.detail)
+
+    /*
+     * Proven before stored, as the S3 keys and the licence were. A URL that is
+     * saved and then found not to work has already been rendered into the
+     * compose file, and the application is the thing that discovers it.
+     */
+    const probe = await docker.psqlQuery(parsed.target, 'SELECT version()')
+    if (probe.code !== 0) {
+      fail(`Could not connect: ${(probe.stderr || '').trim().slice(0, 300)}\nNothing was changed.`)
+    }
+    // Drill needs to create a scratch database; refuse a role that cannot,
+    // here, rather than at the first drill on the new server.
+    const can = await docker.psqlQuery(parsed.target, 'SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user')
+    if (can.code === 0 && can.stdout.trim() !== 't') {
+      fail(`The role ${parsed.target.dbUser} cannot CREATE DATABASE, so backup drills would fail against this server. Grant CREATEDB and try again.\nNothing was changed.`)
+    }
+
+    saveSecrets({ ...loadSecrets(), [DATABASE_URL]: url })
+    console.log(`Database is now ${parsed.target.host}:${parsed.target.port}/${parsed.target.dbName} — ${probe.stdout.trim().split(' ').slice(0, 2).join(' ')}`)
+    console.log('The postgres module will not be rendered. Run `apply` to move the application over.')
+    console.log('The old postgres_data volume is kept; `database use-local` points back at it.')
+  })
+
+database
+  .command('use-local')
+  .description('Go back to the postgres module in this deployment')
+  .action(async () => {
+    const { DATABASE_URL } = await import('./backup/target.js')
+    const { loadSecrets, saveSecrets } = await import('./state/store.js')
+    const secrets = loadSecrets()
+    if (!secrets[DATABASE_URL]) fail('The database is already local.')
+    const { [DATABASE_URL]: _gone, ...rest } = secrets
+    saveSecrets(rest)
+    console.log('Database is the postgres module again. Run `apply` to move the application back.')
+    console.log('Whatever was written to the external database since the switch is not in the local volume.')
+  })
+
+// ---------------------------------------------------------------------------
 // Recovery
 // ---------------------------------------------------------------------------
 

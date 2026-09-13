@@ -19,7 +19,15 @@ export const app = defineModule({
   cost: { image: '~600 MB', memory: '2G', cpus: '2' },
   requires: ['postgres'],
   config: z.void(),
-  secrets: [],
+  secrets: [
+    {
+      name: 'DATABASE_URL',
+      title: 'Database URL',
+      help: 'Set only when the database lives outside this deployment — a VM, a managed service. Leave unset to use the postgres module. Configure it with `database use`, not here.',
+      kind: 'token',
+      optional: true,
+    },
+  ],
   volumes: ['uploads_data', 'logs_data', 'document_fonts'],
   render: (ctx) => {
     const { settings } = ctx
@@ -28,9 +36,13 @@ export const app = defineModule({
       image: `ghcr.io/alikhubrani/qanoontech:${ctx.version}`,
       restart: 'unless-stopped',
       environment: {
+        // The stored URL when the database is elsewhere, else the compose
+        // module by name. A supplied URL is handed on exactly as given —
+        // whoever wrote it knows their server.
         DATABASE_URL:
+          ctx.optionalSecret('DATABASE_URL') ??
           `postgresql://${settings.dbUser}:${dbPassword}` +
-          `@postgres:5432/${settings.dbName}?schema=public`,
+            `@postgres:5432/${settings.dbName}?schema=public`,
         NODE_ENV: 'production',
         PORT: '3000',
         API_PORT: '3001',

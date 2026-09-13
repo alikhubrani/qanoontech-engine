@@ -321,11 +321,41 @@ export const ENGINE_VOLUME = 'qanoontech_engine'
 export const PROJECT_NETWORK = `${PROJECT_NAME}_${NETWORK_NAME}`
 const UPLOADS_VOLUME = `${PROJECT_NAME}_uploads_data`
 
-export interface DatabaseTarget {
-  readonly dbName: string
-  readonly dbUser: string
-  readonly password: string
+/**
+ * Re-exported from `backup/target.ts`, which is the one place that decides
+ * where the database is. The helpers below take a target and never a name:
+ * they used to write `-h postgres` themselves, four times, and that was four
+ * places to forget when the database stopped being a neighbour container.
+ */
+export type { DatabaseTarget } from '../backup/target.js'
+import type { DatabaseTarget } from '../backup/target.js'
+
+/**
+ * The connection, as environment for the helper — never in the command line.
+ * `PGHOST`/`PGPORT`/`PGSSLMODE` join the credentials that were already here.
+ */
+function connectionEnv(target: DatabaseTarget, database = target.dbName): Record<string, string> {
+  return {
+    PGHOST: target.host,
+    PGPORT: String(target.port),
+    PGSSLMODE: target.sslmode,
+    PGPASSWORD: target.password,
+    PGUSER: target.dbUser,
+    PGDATABASE: database,
+  }
 }
+
+/**
+ * On the project network for the compose module, which is reachable only by
+ * name from inside it. Off it for an external host: the default bridge reaches
+ * the LAN and the internet, and the project network may not exist at all on a
+ * deployment that renders no `postgres` service.
+ */
+function networkArgs(target: DatabaseTarget): string[] {
+  return target.external ? [] : ['--network', PROJECT_NETWORK]
+}
+
+const PG_ENV = ['--env', 'PGHOST', '--env', 'PGPORT', '--env', 'PGSSLMODE', '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE']
 
 /** pg_dump to a gzipped SQL file on the engine volume, then verify the gzip. */
 export async function dumpDatabase(
@@ -337,19 +367,16 @@ export async function dumpDatabase(
     'docker',
     [
       'run', '--rm',
-      '--network', PROJECT_NETWORK,
+      ...networkArgs(target),
       '--volume', `${ENGINE_VOLUME}:/state`,
-      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      ...PG_ENV,
       POSTGRES_HELPER_IMAGE,
       'sh', '-c',
       // --clean --if-exists so a restore replays onto a live schema; the
       // trailing gzip -t means a dump that does not verify never exists.
-      `pg_dump -h postgres --clean --if-exists | gzip > ${outPath} && gzip -t ${outPath}`,
+      `pg_dump --clean --if-exists | gzip > ${outPath} && gzip -t ${outPath}`,
     ],
-    {
-      ...options,
-      env: { PGPASSWORD: target.password, PGUSER: target.dbUser, PGDATABASE: target.dbName },
-    },
+    { ...options, env: connectionEnv(target) },
   )
 }
 
@@ -362,17 +389,14 @@ export async function restoreDatabase(
     'docker',
     [
       'run', '--rm',
-      '--network', PROJECT_NETWORK,
+      ...networkArgs(target),
       '--volume', `${ENGINE_VOLUME}:/state:ro`,
-      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      ...PG_ENV,
       POSTGRES_HELPER_IMAGE,
       'sh', '-c',
-      `gunzip -c ${inPath} | psql -h postgres --set ON_ERROR_STOP=0 -q`,
+      `gunzip -c ${inPath} | psql --set ON_ERROR_STOP=0 -q`,
     ],
-    {
-      ...options,
-      env: { PGPASSWORD: target.password, PGUSER: target.dbUser, PGDATABASE: target.dbName },
-    },
+    { ...options, env: connectionEnv(target) },
   )
 }
 
@@ -393,19 +417,12 @@ export async function psqlQuery(
     'docker',
     [
       'run', '--rm',
-      '--network', PROJECT_NETWORK,
-      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      ...networkArgs(target),
+      ...PG_ENV,
       POSTGRES_HELPER_IMAGE,
-      'psql', '-h', 'postgres', '-t', '-A', '--set', 'ON_ERROR_STOP=1', '-c', sql,
+      'psql', '-t', '-A', '--set', 'ON_ERROR_STOP=1', '-c', sql,
     ],
-    {
-      ...options,
-      env: {
-        PGPASSWORD: target.password,
-        PGUSER: target.dbUser,
-        PGDATABASE: options?.database ?? target.dbName,
-      },
-    },
+    { ...options, env: connectionEnv(target, options?.database ?? target.dbName) },
   )
 }
 
@@ -426,17 +443,14 @@ export async function restoreDatabaseInto(
     'docker',
     [
       'run', '--rm',
-      '--network', PROJECT_NETWORK,
+      ...networkArgs(target),
       '--volume', `${ENGINE_VOLUME}:/state:ro`,
-      '--env', 'PGPASSWORD', '--env', 'PGUSER', '--env', 'PGDATABASE',
+      ...PG_ENV,
       POSTGRES_HELPER_IMAGE,
       'sh', '-c',
-      `gunzip -c ${inPath} | psql -h postgres --set ON_ERROR_STOP=0 -q`,
+      `gunzip -c ${inPath} | psql --set ON_ERROR_STOP=0 -q`,
     ],
-    {
-      ...options,
-      env: { PGPASSWORD: target.password, PGUSER: target.dbUser, PGDATABASE: database },
-    },
+    { ...options, env: connectionEnv(target, database) },
   )
 }
 

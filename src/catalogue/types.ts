@@ -86,6 +86,12 @@ export interface RenderContext<TConfig> {
   readonly config: TConfig
   /** A secret by name, from the engine's own store. Throws if absent. */
   readonly secret: (name: string) => string
+  /**
+   * A secret that may legitimately not exist, or `undefined`. For a module
+   * whose behaviour changes on presence — `DATABASE_URL` set means the database
+   * is elsewhere — and which must not register the absence as a problem.
+   */
+  readonly optionalSecret: (name: string) => string | undefined
   /** Whether another module is enabled. For wiring, never for gating. */
   readonly isEnabled: (moduleId: string) => boolean
 }

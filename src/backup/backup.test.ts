@@ -117,7 +117,7 @@ describe('taking a backup', () => {
     saveSecrets({}, dir)
     const outcome = await takeBackup('manual', dir)
     expect(outcome.ok).toBe(false)
-    expect(outcome.detail).toContain('no database to back up yet')
+    expect(outcome.detail).toContain('DB_PASSWORD')
   })
 })
 

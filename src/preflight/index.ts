@@ -2,6 +2,7 @@ import { statfs } from 'node:fs/promises'
 import { totalmem } from 'node:os'
 import { CATALOGUE } from '../catalogue/index.js'
 import * as docker from '../docker/index.js'
+import { databaseTarget } from '../backup/target.js'
 import { probeRegistry, storedRegistryAuth } from '../registry.js'
 import { loadState, stateDir } from '../state/store.js'
 
@@ -167,24 +168,61 @@ export async function runPreflight(dir = stateDir()): Promise<CheckResult[]> {
   }
 
   // -- is this actually a fresh install? ------------------------------------
+  /*
+   * Two ways to answer, decided by where the database is. In compose, a
+   * `postgres_data` volume is the evidence. Elsewhere there is no volume to
+   * find, and a re-install would look like a new firm — so the database itself
+   * is asked whether it already holds a schema. A database that cannot be
+   * reached is a failure here, not a warning: nothing after this can work.
+   */
   if (daemon.code === 0) {
-    const existing = await docker.volumes()
-    const names = existing.stdout.trim().split('\n').filter(Boolean)
-    if (names.some((name) => name.includes('postgres_data'))) {
-      results.push({
-        id: 'existing-data',
-        title: 'Existing data',
-        status: 'warn',
-        detail:
-          'A database volume from a previous installation exists. Deploying will start the system on that data — which is right for a re-install and wrong for a new firm. Be sure which this is.',
-      })
+    const resolved = databaseTarget(dir)
+    if (resolved.ok && resolved.target.external) {
+      const probe = await docker.psqlQuery(
+        resolved.target,
+        "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'",
+      )
+      if (probe.code !== 0) {
+        results.push({
+          id: 'existing-data',
+          title: 'Existing data',
+          status: 'fail',
+          detail: `The external database at ${resolved.target.host}:${resolved.target.port} could not be reached: ${(probe.stderr || '').trim().slice(0, 200)}`,
+        })
+      } else if (Number(probe.stdout.trim()) > 0) {
+        results.push({
+          id: 'existing-data',
+          title: 'Existing data',
+          status: 'warn',
+          detail: `The external database already holds ${probe.stdout.trim()} table(s). Deploying will run migrations against that data — right for a re-install, wrong for a new firm. Be sure which this is.`,
+        })
+      } else {
+        results.push({
+          id: 'existing-data',
+          title: 'Existing data',
+          status: 'pass',
+          detail: `The external database at ${resolved.target.host}:${resolved.target.port} is reachable and empty.`,
+        })
+      }
     } else {
-      results.push({
-        id: 'existing-data',
-        title: 'Existing data',
-        status: 'pass',
-        detail: 'No volumes from a previous installation.',
-      })
+      const existing = await docker.volumes()
+      const names = existing.stdout.trim().split('\n').filter(Boolean)
+      if (names.some((name) => name.includes('postgres_data'))) {
+        results.push({
+          id: 'existing-data',
+          title: 'Existing data',
+          status: 'warn',
+          detail:
+            'A database volume from a previous installation exists. Deploying will start the system on that data — which is right for a re-install and wrong for a new firm. Be sure which this is.',
+        })
+      } else {
+        results.push({
+          id: 'existing-data',
+          title: 'Existing data',
+          status: 'pass',
+          detail: 'No volumes from a previous installation.',
+        })
+      }
     }
   }
 

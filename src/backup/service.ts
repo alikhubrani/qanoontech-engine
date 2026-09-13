@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises'
 import * as docker from '../docker/index.js'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 import { loadSecrets, loadState, stateDir } from '../state/store.js'
+import { databaseTarget } from './target.js'
 
 /**
  * Backups: a nightly set on the engine's own volume, and the way back.
@@ -150,15 +151,14 @@ export async function takeBackup(
   const state = loadState(dir)
   const secrets = loadSecrets(dir)
   const password = secrets['DB_PASSWORD']
-  if (!password) {
-    return { ok: false, detail: 'No DB_PASSWORD is stored; there is no database to back up yet.' }
-  }
+  const resolved = databaseTarget(dir)
+  if (!resolved.ok) return { ok: false, detail: resolved.detail }
 
   const id = newBackupId()
   const setDir = join(backupsRoot(dir), id)
   mkdirSync(setDir, { recursive: true })
 
-  const target = { dbName: state.settings.dbName, dbUser: state.settings.dbUser, password }
+  const target = resolved.target
   const dump = await docker.dumpDatabase(target, containerPath(id, 'database.sql.gz'))
   if (dump.code !== 0) {
     rmSync(setDir, { recursive: true, force: true })
@@ -409,9 +409,9 @@ export async function restoreBackup(
 
   const state = loadState(dir)
   const secrets = loadSecrets(dir)
-  const password = secrets['DB_PASSWORD']
-  if (!password) return fail('resolve', 'No DB_PASSWORD is stored.')
-  const target = { dbName: state.settings.dbName, dbUser: state.settings.dbUser, password }
+  const resolved = databaseTarget(dir)
+  if (!resolved.ok) return fail('resolve', resolved.detail)
+  const target = resolved.target
 
   const safety = await takeBackup('pre-restore', dir)
   steps.push({ step: 'safety-backup', ok: safety.ok, ...(safety.ok ? { detail: safety.id! } : { detail: safety.detail }) })

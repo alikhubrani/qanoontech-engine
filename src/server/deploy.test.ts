@@ -335,7 +335,7 @@ describe('modules describe themselves to the panel', () => {
 
     const mailer = modules.find((m) => m.id === 'email')!
     expect(mailer.configSchema?.properties?.['smtpHost']?.title).toBe('SMTP host')
-    expect(mailer.secrets.map((s) => s.name)).toEqual(['SMTP_PASSWORD', 'SMTP_OAUTH_SECRET'])
+    expect(mailer.secrets.map((s) => s.name)).toEqual(['DATABASE_URL', 'SMTP_PASSWORD', 'SMTP_OAUTH_SECRET'])
     expect(mailer.secrets[0]!.set).toBe(false)
 
     // A module with no config renders no form — null, not an empty object.
