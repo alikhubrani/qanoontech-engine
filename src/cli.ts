@@ -1027,6 +1027,18 @@ program
   .description('Render, check, pull and bring the deployment up')
   .option('--skip-pull', 'do not download images first')
   .action(async (options: { skipPull?: boolean }) => {
+    /*
+     * The same generation the panel's deploy does, so a box deployed only from
+     * the shell is not missing a secret the panel would have made — found when
+     * the Web Push pair arrived in 0.23.0 and `apply` rendered without it.
+     */
+    let created: string[] = []
+    updateSecrets((current) => {
+      const generated = ensureGeneratedSecrets(current)
+      created = generated.created
+      return generated.secrets
+    })
+    if (created.length > 0) console.log(`Generated: ${created.join(', ')}. Values are not shown.`)
     const plan = await requirePlan()
     const path = writePlan(plan.yaml)
     console.log(`Wrote ${path}`)
