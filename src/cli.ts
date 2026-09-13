@@ -9,9 +9,9 @@ import {
   ensureGeneratedSecrets,
   loadSecrets,
   loadState,
-  saveSecrets,
-  saveState,
   stateDir,
+  updateSecrets,
+  updateState,
 } from './state/store.js'
 
 /**
@@ -113,10 +113,7 @@ program
     if (!module) fail(`No module named '${id}'. Try: qanoontech-engine modules`)
     if (module.required) fail(`'${id}' is part of the system and is always on.`)
 
-    const state = loadState()
-    if (!state.enabled.includes(id)) {
-      saveState({ ...state, enabled: [...state.enabled, id] })
-    }
+    updateState((state) => (state.enabled.includes(id) ? state : { ...state, enabled: [...state.enabled, id] }))
     console.log(`${module.title} is on. It costs ${module.cost.image} and ${module.cost.memory}.`)
     console.log("Run 'apply' to deploy it.")
   })
@@ -129,8 +126,7 @@ program
     if (!module) fail(`No module named '${id}'.`)
     if (module.required) fail(`'${id}' is part of the system and cannot be turned off.`)
 
-    const state = loadState()
-    saveState({ ...state, enabled: state.enabled.filter((m) => m !== id) })
+    updateState((state) => ({ ...state, enabled: state.enabled.filter((m) => m !== id) }))
     console.log(`${module.title} is off. Run 'apply' to remove it.`)
   })
 
@@ -160,8 +156,7 @@ program
       process.exit(1)
     }
 
-    const state = loadState()
-    saveState({ ...state, config: { ...state.config, [id]: value } })
+    updateState((state) => ({ ...state, config: { ...state.config, [id]: value } }))
     console.log(`Configuration saved for ${module.title}.`)
   })
 
@@ -169,13 +164,13 @@ program
   .command('version <version>')
   .description('Set the QanoonTech version this deployment runs')
   .action((version: string) => {
-    const state = loadState()
-    if (state.version === version) {
+    const before = loadState().version
+    if (before === version) {
       console.log(`Already on ${version}.`)
       return
     }
-    saveState({ ...state, previousVersion: state.version, version })
-    console.log(`${state.version} → ${version}. Run 'apply' to deploy it.`)
+    updateState((state) => (state.version === version ? state : { ...state, previousVersion: state.version, version }))
+    console.log(`${before} → ${version}. Run 'apply' to deploy it.`)
   })
 
 // ---------------------------------------------------------------------------
@@ -188,8 +183,12 @@ secrets
   .command('init')
   .description('Generate any missing secret. Existing ones are left alone')
   .action(() => {
-    const { secrets: next, created } = ensureGeneratedSecrets(loadSecrets())
-    saveSecrets(next)
+    let created: string[] = []
+    updateSecrets((current) => {
+      const generated = ensureGeneratedSecrets(current)
+      created = generated.created
+      return generated.secrets
+    })
     if (created.length === 0) {
       console.log('Nothing to generate; every secret is already set.')
     } else {
@@ -204,7 +203,7 @@ secrets
   .action((name: string) => {
     const value = readFileSync(0, 'utf8').trim()
     if (value === '') fail('Nothing on stdin. Pipe the value in.')
-    saveSecrets({ ...loadSecrets(), [name]: value })
+    updateSecrets((current) => ({ ...current, [name]: value }))
     console.log(`${name} set.`)
   })
 
@@ -213,9 +212,8 @@ secrets
   .description('Delete a stored secret. Refuses one the deployment still needs')
   .option('--force', 'remove it anyway')
   .action(async (name: string, options: { force?: boolean }) => {
-    const { loadSecrets, saveSecrets, GENERATED_SECRETS } = await import('./state/store.js')
+    const { GENERATED_SECRETS } = await import('./state/store.js')
     const { CATALOGUE } = await import('./catalogue/index.js')
-    const { loadState } = await import('./state/store.js')
 
     const secrets = loadSecrets()
     if (!(name in secrets)) fail(`${name} is not stored.`)
@@ -240,8 +238,10 @@ secrets
       }
     }
 
-    const { [name]: _removed, ...rest } = secrets
-    saveSecrets(rest)
+    updateSecrets((current) => {
+      const { [name]: _removed, ...rest } = current
+      return rest
+    })
     console.log(`${name} removed.`)
     // The snapshot carries secrets, so the copy in the store still holds it
     // until the next tick replaces it. Say so rather than implying it is gone
@@ -352,7 +352,6 @@ offsite
   .command('status')
   .description('Where backups are copied to, and whether the credentials work')
   .action(async () => {
-    const { loadState } = await import('./state/store.js')
     const { offsiteStore } = await import('./backup/store.js')
     const { listBackups } = await import('./backup/service.js')
     const { readOffsite } = await import('./backup/offsite.js')
@@ -382,7 +381,6 @@ offsite
   .option('--region <region>', 'credential-scope region; R2 wants "auto"', 'auto')
   .option('--prefix <prefix>', 'key prefix, so one bucket can hold several deployments')
   .action(async (endpoint: string, bucket: string, options: { region: string; prefix?: string }) => {
-    const { loadState, saveState, loadSecrets } = await import('./state/store.js')
     const secrets = loadSecrets()
     for (const name of ['S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
       if (!secrets[name]) {
@@ -391,20 +389,17 @@ offsite
       }
     }
 
-    const state = loadState()
-    saveState(
-      {
-        ...state,
-        settings: {
-          ...state.settings,
-          backupOffsiteEnabled: true,
-          backupS3Endpoint: endpoint.replace(/\/$/, ''),
-          backupS3Bucket: bucket,
-          backupS3Region: options.region,
-          backupS3Prefix: options.prefix ?? '',
-        },
+    updateState((state) => ({
+      ...state,
+      settings: {
+        ...state.settings,
+        backupOffsiteEnabled: true,
+        backupS3Endpoint: endpoint.replace(/\/$/, ''),
+        backupS3Bucket: bucket,
+        backupS3Region: options.region,
+        backupS3Prefix: options.prefix ?? '',
       },
-    )
+    }))
     console.log(`Offsite is now ${bucket} at ${endpoint}.`)
     console.log("Run 'offsite test' to prove the credentials before trusting it.")
   })
@@ -521,7 +516,6 @@ program
   .description('Configure the previously installed version. Run apply afterwards')
   .action(async () => {
     const { rollbackVersion } = await import('./server/jobs.js')
-    const { stateDir } = await import('./state/store.js')
     const result = rollbackVersion(stateDir())
     if (!result.ok) fail(result.detail)
     console.log(result.detail)
@@ -581,8 +575,7 @@ database
   .action(async () => {
     const { DATABASE_URL } = await import('./backup/target.js')
     const { proveDatabaseUrl } = await import('./backup/database-switch.js')
-    const { loadSecrets, saveSecrets } = await import('./state/store.js')
-
+    
     const url = readFileSync(0, 'utf8').trim()
     if (url === '') fail('Nothing on stdin. Pipe the URL in.')
     /*
@@ -595,7 +588,7 @@ database
     if (!proof.ok) fail(`${proof.detail}\nNothing was changed.`)
     const parsed = { target: proof.target! }
     const probe = { stdout: proof.server ?? '' }
-    saveSecrets({ ...loadSecrets(), [DATABASE_URL]: url })
+    updateSecrets((current) => ({ ...current, [DATABASE_URL]: url }))
     console.log(`Database is now ${parsed.target.host}:${parsed.target.port}/${parsed.target.dbName} — ${probe.stdout.trim().split(' ').slice(0, 2).join(' ')}`)
     console.log('The postgres module will not be rendered. Run `apply` to move the application over.')
     console.log('The old postgres_data volume is kept; `database use-local` points back at it.')
@@ -606,11 +599,11 @@ database
   .description('Go back to the postgres module in this deployment')
   .action(async () => {
     const { DATABASE_URL } = await import('./backup/target.js')
-    const { loadSecrets, saveSecrets } = await import('./state/store.js')
-    const secrets = loadSecrets()
-    if (!secrets[DATABASE_URL]) fail('The database is already local.')
-    const { [DATABASE_URL]: _gone, ...rest } = secrets
-    saveSecrets(rest)
+        if (!loadSecrets()[DATABASE_URL]) fail('The database is already local.')
+    updateSecrets((current) => {
+      const { [DATABASE_URL]: _gone, ...rest } = current
+      return rest
+    })
     console.log('Database is the postgres module again. Run `apply` to move the application back.')
     console.log('Whatever was written to the external database since the switch is not in the local volume.')
   })
@@ -630,16 +623,14 @@ recovery
   .command('passphrase')
   .description('Set the recovery passphrase, read from stdin. Without it nothing is copied')
   .action(async () => {
-    const { loadSecrets, saveSecrets } = await import('./state/store.js')
-    const { RECOVERY_PASSPHRASE, clearKeyCache } = await import('./backup/snapshot.js')
+        const { RECOVERY_PASSPHRASE, clearKeyCache } = await import('./backup/snapshot.js')
 
     const passphrase = readFileSync(0, 'utf8').trim()
     if (passphrase === '') fail('Nothing on stdin. Pipe the passphrase in.')
     if (passphrase.length < 12) fail('Too short. This is the only thing standing between a bucket and every credential this deployment holds.')
 
-    const secrets = loadSecrets()
-    const replacing = Boolean(secrets[RECOVERY_PASSPHRASE])
-    saveSecrets({ ...secrets, [RECOVERY_PASSPHRASE]: passphrase })
+    const replacing = Boolean(loadSecrets()[RECOVERY_PASSPHRASE])
+    updateSecrets((current) => ({ ...current, [RECOVERY_PASSPHRASE]: passphrase }))
     clearKeyCache()
 
     console.log(replacing ? 'Recovery passphrase replaced.' : 'Recovery passphrase set.')
@@ -658,7 +649,6 @@ recovery
   .command('status')
   .description('Whether this deployment could be brought back, and from what')
   .action(async () => {
-    const { loadSecrets } = await import('./state/store.js')
     const { offsiteStore } = await import('./backup/store.js')
     const { SNAPSHOT_KEY, RECOVERY_PASSPHRASE } = await import('./backup/snapshot.js')
 
@@ -815,7 +805,6 @@ recovery
        * when that backup was taken rather than whatever is in the bucket now.
        */
       const { BACKUPS_DIR } = await import('./backup/service.js')
-      const { stateDir } = await import('./state/store.js')
       const docs = await restoreDocuments(join(stateDir(), BACKUPS_DIR, newest.name))
       console.log(`      ${docs.detail}`)
 
@@ -948,7 +937,6 @@ auth
   .command('status')
   .description('Whether this deployment can be signed in to, and by whom')
   .action(async () => {
-    const { loadState, loadSecrets } = await import('./state/store.js')
     const settings = loadState().settings
     const secretSet = Boolean(loadSecrets()['ENTRA_CLIENT_SECRET'])
 
@@ -976,14 +964,12 @@ auth
   .command('redirect <url>')
   .description('The callback URL registered with the Entra application')
   .action(async (url: string) => {
-    const { loadState, saveState } = await import('./state/store.js')
-    // Entra refuses plain http except on localhost, so a URI it will not accept
+        // Entra refuses plain http except on localhost, so a URI it will not accept
     // is refused here rather than at the first sign-in.
     if (!/^https:\/\//.test(url) && !/^http:\/\/localhost(:|\/)/.test(url)) {
       fail('The redirect URI must be https, or http://localhost. Entra refuses anything else.')
     }
-    const state = loadState()
-    saveState({ ...state, settings: { ...state.settings, entraRedirectUri: url } })
+    updateState((state) => ({ ...state, settings: { ...state.settings, entraRedirectUri: url } }))
     console.log(`Redirect URI set to ${url}`)
     console.log('It must match one registered on the Entra application exactly.')
     // The same value decides which Host header the engine will answer to, so
@@ -998,13 +984,11 @@ auth
   .command('allow <objectId...>')
   .description('Replace the list of object ids permitted to sign in')
   .action(async (objectIds: string[]) => {
-    const { loadState, saveState } = await import('./state/store.js')
-    const allow = objectIds.filter((id) => id.trim() !== '')
+        const allow = objectIds.filter((id) => id.trim() !== '')
     // An empty list admits nobody, which is the right failure and a miserable
     // way to learn it. Refused here, where the panel is still reachable.
     if (allow.length === 0) fail('At least one object id, or nobody can sign in.')
-    const state = loadState()
-    saveState({ ...state, settings: { ...state.settings, entraAllowedObjectIds: allow } })
+    updateState((state) => ({ ...state, settings: { ...state.settings, entraAllowedObjectIds: allow } }))
     console.log(`Allowed: ${allow.join(', ')}`)
   })
 

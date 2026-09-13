@@ -621,6 +621,13 @@ server on each. Going back to a local database from here means
 `database use-local` and a restore, not the old volume. The bucket's
 lifecycle rule is scoped to `backups/`, thirty days, on both.
 
+**Three loose ends closed 2026-09-13 (0.22.1).** Every change to
+`state.json` and `secrets.json` goes through `updateState` / `updateSecrets`,
+a read-modify-write under a directory lock shared by the CLI and the server,
+so two writers at once no longer lose one (35 call sites converted, none
+left). `paseto`, a dependency of the removed licence protocol, is gone. The
+type-check now covers the tests as well as the sources.
+
 ### Then, and separately — the application's query patterns
 
 **Before anything moves, not after.** `server/services/case.service.ts` alone

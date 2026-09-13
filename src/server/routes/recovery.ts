@@ -4,7 +4,7 @@ import { readLastDrill } from '../../backup/drill.js'
 import { offsiteClient, probeOffsite, readOffsite } from '../../backup/offsite.js'
 import { listBackups } from '../../backup/service.js'
 import { RECOVERY_PASSPHRASE, SNAPSHOT_KEY, clearKeyCache, readSnapshotMarker } from '../../backup/snapshot.js'
-import { loadSecrets, loadState, saveSecrets, saveState } from '../../state/store.js'
+import { loadSecrets, loadState, updateSecrets, updateState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
 import { refuse, who } from '../guards.js'
 
@@ -87,19 +87,25 @@ export function recoveryRoutes(app: FastifyInstance, ctx: ServerContext): void {
       }
     }
 
-    if (next !== secrets && (patch.accessKeyId || patch.secretAccessKey)) saveSecrets(next, ctx.dir)
-    saveState(
-      {
-        ...state,
+    if (patch.accessKeyId || patch.secretAccessKey) {
+      updateSecrets((current) => ({
+        ...current,
+        ...(patch.accessKeyId ? { [S3_ACCESS_KEY_ID]: patch.accessKeyId } : {}),
+        ...(patch.secretAccessKey ? { [S3_SECRET_ACCESS_KEY]: patch.secretAccessKey } : {}),
+      }), ctx.dir)
+    }
+    updateState(
+      (current) => ({
+        ...current,
         settings: {
-          ...state.settings,
+          ...current.settings,
           backupOffsiteEnabled: patch.enabled,
           backupS3Endpoint: endpoint,
           backupS3Bucket: bucket,
-          backupS3Region: patch.region || state.settings.backupS3Region || 'auto',
-          backupS3Prefix: patch.prefix ?? state.settings.backupS3Prefix,
+          backupS3Region: patch.region || current.settings.backupS3Region || 'auto',
+          backupS3Prefix: patch.prefix ?? current.settings.backupS3Prefix,
         },
-      },
+      }),
       ctx.dir,
     )
     ctx.audit.record('offsite-changed', {
@@ -155,9 +161,8 @@ export function recoveryRoutes(app: FastifyInstance, ctx: ServerContext): void {
     if (passphrase.length < 12) {
       return refuse(reply, 400, 'Too short. This is the only thing standing between a bucket and every credential this deployment holds; twelve characters at least.')
     }
-    const secrets = loadSecrets(ctx.dir)
-    const replacing = Boolean(secrets[RECOVERY_PASSPHRASE])
-    saveSecrets({ ...secrets, [RECOVERY_PASSPHRASE]: passphrase }, ctx.dir)
+    const replacing = Boolean(loadSecrets(ctx.dir)[RECOVERY_PASSPHRASE])
+    updateSecrets((current) => ({ ...current, [RECOVERY_PASSPHRASE]: passphrase }), ctx.dir)
     clearKeyCache()
     ctx.audit.record('recovery-passphrase-set', {
       detail: replacing ? 'replaced' : 'set',

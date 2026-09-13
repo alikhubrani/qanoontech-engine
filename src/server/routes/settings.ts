@@ -7,7 +7,7 @@ import { proveDatabaseUrl } from '../../backup/database-switch.js'
 import { RECOVERY_PASSPHRASE, RECOVERY_SALT } from '../../backup/snapshot.js'
 import { DATABASE_URL, databaseTarget } from '../../backup/target.js'
 import { forgetProbe } from '../../services.js'
-import { GENERATED_SECRETS, loadSecrets, loadState, saveSecrets, saveState } from '../../state/store.js'
+import { GENERATED_SECRETS, loadSecrets, loadState, updateSecrets, updateState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
 import { refuse, who } from '../guards.js'
 import { S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY } from './recovery.js'
@@ -108,10 +108,21 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     }
 
     if (patch.clientSecret) {
-      saveSecrets({ ...loadSecrets(ctx.dir), [ENTRA_CLIENT_SECRET]: patch.clientSecret }, ctx.dir)
+      const clientSecret = patch.clientSecret
+      updateSecrets((current) => ({ ...current, [ENTRA_CLIENT_SECRET]: clientSecret }), ctx.dir)
     }
 
-    saveState({ ...state, settings }, ctx.dir)
+    updateState(
+      (current) => ({
+        ...current,
+        settings: {
+          ...current.settings,
+          entraRedirectUri: settings.entraRedirectUri,
+          entraAllowedObjectIds: settings.entraAllowedObjectIds,
+        },
+      }),
+      ctx.dir,
+    )
     ctx.audit.record('auth-changed', {
       detail: [
         patch.redirectUri !== undefined ? 'redirect URI' : '',
@@ -190,7 +201,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     const url = body.data.url.trim()
     const proof = await proveDatabaseUrl(url)
     if (!proof.ok) return refuse(reply, 400, `${proof.detail} Nothing was changed.`)
-    saveSecrets({ ...loadSecrets(ctx.dir), [DATABASE_URL]: url }, ctx.dir)
+    updateSecrets((current) => ({ ...current, [DATABASE_URL]: url }), ctx.dir)
     forgetProbe()
     ctx.audit.record('database-changed', {
       detail: `${proof.target!.host}:${proof.target!.port}/${proof.target!.dbName}`,
@@ -201,10 +212,11 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
   })
 
   app.delete('/api/database', async (request, reply) => {
-    const secrets = loadSecrets(ctx.dir)
-    if (!secrets[DATABASE_URL]) return refuse(reply, 409, 'The database is already local.')
-    const { [DATABASE_URL]: _gone, ...rest } = secrets
-    saveSecrets(rest, ctx.dir)
+    if (!loadSecrets(ctx.dir)[DATABASE_URL]) return refuse(reply, 409, 'The database is already local.')
+    updateSecrets((current) => {
+      const { [DATABASE_URL]: _gone, ...rest } = current
+      return rest
+    }, ctx.dir)
     forgetProbe()
     ctx.audit.record('database-changed', {
       detail: 'local (the postgres module)',
@@ -249,7 +261,8 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     if (!SECRET_NAME.test(name)) return refuse(reply, 400, 'A secret name is upper-case letters, digits and underscores.')
     const body = secretBody.safeParse(request.body)
     if (!body.success) return refuse(reply, 400, 'A value is required.')
-    saveSecrets({ ...loadSecrets(ctx.dir), [name]: body.data.value }, ctx.dir)
+    const value = body.data.value
+    updateSecrets((current) => ({ ...current, [name]: value }), ctx.dir)
     if (name === DATABASE_URL) forgetProbe()
     ctx.audit.record('secret-set', {
       detail: name,
@@ -277,8 +290,10 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
         return refuse(reply, 409, `${name} is used by ${ENGINE_SECRETS[name]}.`)
       }
     }
-    const { [name]: _removed, ...rest } = secrets
-    saveSecrets(rest, ctx.dir)
+    updateSecrets((current) => {
+      const { [name]: _removed, ...rest } = current
+      return rest
+    }, ctx.dir)
     if (name === DATABASE_URL) forgetProbe()
     ctx.audit.record('secret-removed', {
       detail: name,

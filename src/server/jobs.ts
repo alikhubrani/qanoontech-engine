@@ -7,8 +7,8 @@ import {
   ensureGeneratedSecrets,
   loadSecrets,
   loadState,
-  saveSecrets,
-  saveState,
+  updateSecrets,
+  updateState,
   type EngineState,
 } from '../state/store.js'
 
@@ -76,9 +76,13 @@ export class JobRunner {
       // values are never touched — regenerating DB_PASSWORD orphans a
       // database. (Found on the first real box: the browser flow had no step
       // that generated them, because only the CLI ever had.)
-      const { secrets, created } = ensureGeneratedSecrets(loadSecrets(this.dir))
+      let created: string[] = []
+      updateSecrets((current) => {
+        const generated = ensureGeneratedSecrets(current)
+        created = generated.created
+        return generated.secrets
+      }, this.dir)
       if (created.length > 0) {
-        saveSecrets(secrets, this.dir)
         this.append(job, `Generated: ${created.join(', ')}. Values are not shown.\n`)
       }
 
@@ -186,20 +190,22 @@ export class JobRunner {
 
 /** Version bookkeeping shared by update and rollback. */
 export function setVersion(version: string, dir: string): EngineState {
-  const state = loadState(dir)
-  if (state.version === version) return state
-  const next = { ...state, previousVersion: state.version, version }
-  saveState(next, dir)
-  return next
+  return updateState(
+    (state) => (state.version === version ? state : { ...state, previousVersion: state.version, version }),
+    dir,
+  )
 }
 
 export function rollbackVersion(dir: string): { ok: boolean; version?: string; detail: string } {
-  const state = loadState(dir)
-  if (!state.previousVersion) {
+  let target: string | undefined
+  updateState((state) => {
+    if (!state.previousVersion) return state
+    target = state.previousVersion
+    return { ...state, previousVersion: state.version, version: target }
+  }, dir)
+  if (!target) {
     return { ok: false, detail: 'There is no previous version recorded to roll back to.' }
   }
-  const target = state.previousVersion
-  saveState({ ...state, previousVersion: state.version, version: target }, dir)
   return {
     ok: true,
     version: target,

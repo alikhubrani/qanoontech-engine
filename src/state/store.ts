@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { mkdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
@@ -201,8 +202,70 @@ export function loadState(dir = stateDir()): EngineState {
   return stateSchema.parse(raw ?? {})
 }
 
+/** Replace the whole file. For recovery and first boot; a change goes through `updateState`. */
 export function saveState(state: EngineState, dir = stateDir()): void {
-  writeJsonAtomic(join(dir, STATE_FILE), stateSchema.parse(state))
+  withStateLock(() => writeJsonAtomic(join(dir, STATE_FILE), stateSchema.parse(state)), dir)
+}
+
+/*
+ * Every change to state.json or secrets.json is a read-modify-write, and two
+ * of them at once lose one: the CLI (`docker exec`) and the server share the
+ * volume, and the server itself handles a request while the tick runs. This
+ * is the lock they share — a directory, because `mkdir` is atomic on every
+ * filesystem Docker mounts — held for the length of one synchronous
+ * read-modify-write and never across an `await`. Reentrant within a process,
+ * so a transaction may call `saveState` inside it. A lock older than
+ * `staleMs` belongs to a process that died holding it and is taken over.
+ */
+const LOCK_DIR = '.write-lock'
+let heldByThisProcess = false
+
+export function withStateLock<T>(
+  fn: () => T,
+  dir = stateDir(),
+  options: { timeoutMs?: number; staleMs?: number } = {},
+): T {
+  if (heldByThisProcess) return fn()
+  const { timeoutMs = 5_000, staleMs = 15_000 } = options
+  mkdirSync(dir, { recursive: true })
+  const lock = join(dir, LOCK_DIR)
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    try {
+      mkdirSync(lock)
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > staleMs) {
+          rmSync(lock, { recursive: true, force: true })
+          continue
+        }
+      } catch {
+        continue
+      }
+      if (Date.now() > deadline) {
+        throw new Error('The engine state is locked by another writer that has not finished. Try again in a moment.')
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    }
+  }
+  heldByThisProcess = true
+  try {
+    return fn()
+  } finally {
+    heldByThisProcess = false
+    rmSync(lock, { recursive: true, force: true })
+  }
+}
+
+/** Change the state: read it fresh under the lock, apply, write. Returns what was written. */
+export function updateState(fn: (state: EngineState) => EngineState, dir = stateDir()): EngineState {
+  return withStateLock(() => {
+    const next = stateSchema.parse(fn(loadState(dir)))
+    writeJsonAtomic(join(dir, STATE_FILE), next)
+    return next
+  }, dir)
 }
 
 /**
@@ -215,8 +278,21 @@ export function loadSecrets(dir = stateDir()): Record<string, string> {
   return z.record(z.string(), z.string()).parse(raw ?? {})
 }
 
+/** Replace the whole file. For recovery; a change goes through `updateSecrets`. */
 export function saveSecrets(secrets: Record<string, string>, dir = stateDir()): void {
-  writeJsonAtomic(join(dir, SECRETS_FILE), secrets)
+  withStateLock(() => writeJsonAtomic(join(dir, SECRETS_FILE), secrets), dir)
+}
+
+/** Change the secrets: read them fresh under the lock, apply, write. Returns what was written. */
+export function updateSecrets(
+  fn: (secrets: Record<string, string>) => Record<string, string>,
+  dir = stateDir(),
+): Record<string, string> {
+  return withStateLock(() => {
+    const next = fn(loadSecrets(dir))
+    writeJsonAtomic(join(dir, SECRETS_FILE), next)
+    return next
+  }, dir)
 }
 
 /**

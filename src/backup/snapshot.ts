@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync, 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
-import { loadSecrets, loadState, saveSecrets, saveState, stateDir } from '../state/store.js'
+import { loadSecrets, loadState, saveSecrets, saveState, stateDir, updateSecrets } from '../state/store.js'
 import type { OffsiteObject, OffsiteStore } from './store.js'
 
 /**
@@ -299,7 +299,8 @@ export async function pushSnapshot(
     salt = Buffer.from(stored, 'base64')
   } else {
     salt = newSalt()
-    saveSecrets({ ...secrets, [RECOVERY_SALT]: salt.toString('base64') }, dir)
+    const encoded = salt.toString('base64')
+    updateSecrets((current) => ({ ...current, [RECOVERY_SALT]: encoded }), dir)
   }
 
   const body = buildSnapshotBody(dir, engineVersion)

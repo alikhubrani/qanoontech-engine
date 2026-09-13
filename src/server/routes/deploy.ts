@@ -4,7 +4,7 @@ import { CATALOGUE, findModule } from '../../catalogue/index.js'
 import * as docker from '../../docker/index.js'
 import { runPreflight } from '../../preflight/index.js'
 import { REGISTRY, listVersions, probeRegistry, storedRegistryAuth } from '../../registry.js'
-import { loadSecrets, loadState, saveSecrets, saveState } from '../../state/store.js'
+import { loadSecrets, loadState, updateSecrets, updateState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
 import { refuse, who } from '../guards.js'
 import { rollbackVersion, setVersion, type JobRunner } from '../jobs.js'
@@ -48,11 +48,10 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     const body = settingsPatchSchema.safeParse(request.body)
     if (!body.success) return refuse(reply, 400, 'Those settings are not valid.')
 
-    const state = loadState(ctx.dir)
     const patch = Object.fromEntries(
       Object.entries(body.data).filter(([, value]) => value !== undefined),
     )
-    saveState({ ...state, settings: { ...state.settings, ...patch } }, ctx.dir)
+    updateState((state) => ({ ...state, settings: { ...state.settings, ...patch } }), ctx.dir)
     ctx.audit.record('settings-changed', { address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
@@ -70,9 +69,8 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     const probe = await probeRegistry(body.data)
     if (!probe.ok) return refuse(reply, 422, probe.detail)
 
-    const secrets = loadSecrets(ctx.dir)
-    saveSecrets(
-      { ...secrets, GHCR_USERNAME: body.data.username, GHCR_TOKEN: body.data.token },
+    updateSecrets(
+      (secrets) => ({ ...secrets, GHCR_USERNAME: body.data.username, GHCR_TOKEN: body.data.token }),
       ctx.dir,
     )
 
@@ -201,19 +199,21 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
       }
     }
 
-    const next = { ...loadSecrets(ctx.dir) }
     const set: string[] = []
     const cleared: string[] = []
-    for (const [name, value] of Object.entries(body.data.values)) {
-      if (value === '') {
-        delete next[name]
-        cleared.push(name)
-      } else {
-        next[name] = value
-        set.push(name)
+    updateSecrets((current) => {
+      const next = { ...current }
+      for (const [name, value] of Object.entries(body.data.values)) {
+        if (value === '') {
+          delete next[name]
+          cleared.push(name)
+        } else {
+          next[name] = value
+          set.push(name)
+        }
       }
-    }
-    saveSecrets(next, ctx.dir)
+      return next
+    }, ctx.dir)
     ctx.audit.record('module-secret-set', {
       detail:
         `${id}: ` +
@@ -232,10 +232,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (!module) return refuse(reply, 404, `No module named '${id}'.`)
     if (module.required) return refuse(reply, 409, `'${module.title}' is part of the system and is always on.`)
 
-    const state = loadState(ctx.dir)
-    if (!state.enabled.includes(id)) {
-      saveState({ ...state, enabled: [...state.enabled, id] }, ctx.dir)
-    }
+    updateState((state) => (state.enabled.includes(id) ? state : { ...state, enabled: [...state.enabled, id] }), ctx.dir)
     ctx.audit.record('module-enabled', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
@@ -246,8 +243,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (!module) return refuse(reply, 404, `No module named '${id}'.`)
     if (module.required) return refuse(reply, 409, `'${module.title}' cannot be turned off.`)
 
-    const state = loadState(ctx.dir)
-    saveState({ ...state, enabled: state.enabled.filter((m) => m !== id) }, ctx.dir)
+    updateState((state) => ({ ...state, enabled: state.enabled.filter((m) => m !== id) }), ctx.dir)
     ctx.audit.record('module-disabled', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
@@ -270,14 +266,15 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
       return refuse(reply, 400, 'Memory must look like 4G or 512M; CPUs like 2 or 1.5.')
     }
 
-    const state = loadState(ctx.dir)
-    const next = { ...state.resources }
     const entry: { memory?: string; cpus?: string } = {}
     if (body.data.memory) entry.memory = body.data.memory
     if (body.data.cpus) entry.cpus = body.data.cpus
-    if (Object.keys(entry).length === 0) delete next[id]
-    else next[id] = entry
-    saveState({ ...state, resources: next }, ctx.dir)
+    updateState((state) => {
+      const next = { ...state.resources }
+      if (Object.keys(entry).length === 0) delete next[id]
+      else next[id] = entry
+      return { ...state, resources: next }
+    }, ctx.dir)
     ctx.audit.record('module-configured', { detail: `${id} resources`, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
@@ -298,8 +295,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
       return refuse(reply, 422, `Not valid for '${module.title}': ${issues}`)
     }
 
-    const state = loadState(ctx.dir)
-    saveState({ ...state, config: { ...state.config, [id]: body.data.config } }, ctx.dir)
+    updateState((state) => ({ ...state, config: { ...state.config, [id]: body.data.config } }), ctx.dir)
     ctx.audit.record('module-configured', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
