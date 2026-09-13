@@ -389,6 +389,36 @@ change in that programme that could not be undone by changing the image. Plan
 the window accordingly, take a set immediately before, and drill it before
 starting rather than after.
 
+**Progress 2026-09-13.** Steps 0–4 done on `.106`: the backup helper is a
+Postgres 17 client (15's `pg_dump` refuses a 17 server — measured); a stored
+`DATABASE_URL` is the one fact that decides where the database is; `.108` was
+rebuilt as two isolated instances rather than two databases on one, so
+staging can rehearse a Postgres upgrade the firm has not had yet; and staging
+runs on `192.168.1.108:5435` with its data restored, backed up and drilled
+against the external server. **Measured:** the case page is p50 9 ms / p90 10
+ms local and **p50 14 ms / p90 19 ms** across the LAN — five milliseconds, not
+the hundreds this document feared. The query audit stays worth doing and is no
+longer a prerequisite for moving the firm.
+
+Two defects the switch found, both in what the application repository ships,
+both latent before it and both fatal to it:
+
+- **nginx resolved the application once.** `upstream { server app:3000; }` is
+  looked up when nginx loads and never again; recreating only the application
+  gives it a new address and nginx 502s for three seconds a request while the
+  application is healthy. Every ordinary upgrade recreated both containers and
+  hid it. Fixed in app 1.16.2 with Docker's resolver and a variable upstream.
+- **`sslmode=prefer` means two things.** libpq — every engine helper — falls
+  back to plain text against a server with ssl off; node-postgres, which the
+  application's entrypoint uses to wait, treats it as `verify-full` and refuses.
+  So `database use` proved a URL the application could not use. Engine 0.19.2
+  asks the server `SHOW ssl` and refuses `prefer`/`require`/`verify-*` when it
+  is off. The entrypoint, which had hidden the error behind `2>/dev/null` for
+  twenty minutes, now prints it.
+
+Remaining: app 1.16.2 onto both boxes (it must land on `.18` *before* the
+switch, or the switch reproduces the nginx fault on the firm), then step 6.
+
 **Postgres 15 → 17 rides along here, and only here.** Decided 2026-09-12.
 
 Both boxes run PostgreSQL 15.19 in compose, and `postgres` is pinned to a major
