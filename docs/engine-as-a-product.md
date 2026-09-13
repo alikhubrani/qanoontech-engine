@@ -576,6 +576,24 @@ operator's name and account at the foot of the sidebar and both events in the
 feed. Not verified: the 1024 px pass, because the browser tool could not
 change the viewport; the layout is grid-based and is expected to hold.
 
+**0.21 shipped 2026-09-13.** Backups as four tabs — Sets, Offsite, Schedule,
+Recovery — over one health strip. Offsite is configured from the panel
+(endpoint, bucket, region, prefix, the two keys written once and reported as
+set), probed with the same write/stat/read/remove round trip the CLI runs,
+and listed with the documents it holds. Schedule exposes the four settings
+that had no UI. Recovery sets or replaces the passphrase, reports the
+snapshot as the store says just now, runs the drill, and states what a bare
+machine needs. `probeOffsite` and `drillAndRecord` are shared with the CLI;
+the drill record the code named and never wrote is written.
+
+Acceptance, on staging (`v0.21.0-rc.1`): the panel's drill and `backup
+drill` reported the same numbers — 0.8 s, 49 tables, 10 users, 12 cases, 2
+clients — and the drill appears in the trail as `backup-drilled`; the bucket
+probe passed all four steps from the panel and from the CLI; the listing
+counted 81 documents (8.3 MB) and offered *Bring back* on the sets pruned
+locally; a retention change saved from the panel landed in `state.json` with
+a `settings-changed` entry and was put back the same way.
+
 ### Then, and separately — the application's query patterns
 
 **Before anything moves, not after.** `server/services/case.service.ts` alone
