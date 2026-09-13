@@ -16,7 +16,7 @@ import {
 } from '../../backup/service.js'
 import { loadState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 
 /**
  * Backups over the API: list, take, restore, delete. One at a time — the
@@ -68,7 +68,7 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
     busy = true
     try {
       const result = await drillAndRecord(id || undefined, ctx.dir)
-      ctx.audit.record('backup-drilled', { detail: result.detail.slice(0, 200), address: request.ip })
+      ctx.audit.record('backup-drilled', { detail: result.detail.slice(0, 200), address: request.ip, ...who(request) })
       return { success: true, data: result }
     } finally {
       busy = false
@@ -85,6 +85,7 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
       ctx.audit.record(result.ok ? 'offsite-fetched' : 'offsite-failed', {
         detail: result.detail,
         address: request.ip,
+      ...who(request),
       })
       if (!result.ok) return refuse(reply, 502, result.detail)
       return { success: true, data: {} }
@@ -102,6 +103,7 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
       ctx.audit.record(result.ok ? 'offsite-uploaded' : 'offsite-failed', {
         detail: result.detail,
         address: request.ip,
+      ...who(request),
       })
       if (!result.ok) return refuse(reply, 502, result.detail)
       return { success: true, data: {} }
@@ -118,6 +120,7 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
       ctx.audit.record(outcome.ok ? 'backup-taken' : 'backup-failed', {
         detail: outcome.detail,
         address: request.ip,
+      ...who(request),
       })
       if (!outcome.ok) return refuse(reply, 502, outcome.detail)
       return { success: true, data: { id: outcome.id } }
@@ -131,11 +134,12 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
     const { id } = request.params as { id: string }
     busy = true
     try {
-      ctx.audit.record('restore-started', { detail: id, address: request.ip })
+      ctx.audit.record('restore-started', { detail: id, address: request.ip, ...who(request) })
       const result = await restoreBackup(id, ctx.dir)
       ctx.audit.record(result.ok ? 'restore-completed' : 'restore-failed', {
         detail: id,
         address: request.ip,
+      ...who(request),
       })
       return { success: true, data: result }
     } finally {
@@ -146,7 +150,7 @@ export function backupRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.delete('/api/backups/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
     if (!deleteBackup(id, ctx.dir)) return refuse(reply, 404, 'No such backup.')
-    ctx.audit.record('backup-deleted', { detail: id, address: request.ip })
+    ctx.audit.record('backup-deleted', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 }

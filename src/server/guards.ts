@@ -101,3 +101,12 @@ export function checkOrigin(request: FastifyRequest, config: GuardConfig): boole
 export function refuse(reply: FastifyReply, status: number, message: string): FastifyReply {
   return reply.status(status).send({ success: false, error: message })
 }
+
+/**
+ * Who is asking, for the audit's `subject`. A session minted before 0.20
+ * carries no operator, and an entry with no subject is honest about that.
+ */
+export function who(request: { operator?: { oid: string; upn: string } | undefined }): { subject?: string } {
+  const operator = request.operator
+  return operator ? { subject: operator.upn || operator.oid } : {}
+}

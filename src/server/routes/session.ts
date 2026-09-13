@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import '@fastify/cookie'
 import { z } from 'zod'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 import { loadSecrets, loadState } from '../../state/store.js'
 import {
   authorizeUrl,
@@ -45,7 +45,7 @@ export function sessionRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.delete('/api/session', async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE]
     if (token) ctx.auth.destroySession(token)
-    ctx.audit.record('logout', { address: request.ip })
+    ctx.audit.record('logout', { address: request.ip, ...who(request) })
     reply.clearCookie(SESSION_COOKIE, { path: '/' })
     return { success: true, data: {} }
   })

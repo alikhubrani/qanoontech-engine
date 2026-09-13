@@ -1,6 +1,6 @@
 # The panel
 
-**Status: 0.20 (foundations and assurance) and 0.21 (recovery) shipped 2026-09-13; 0.22 proposed — Phase 6 of `engine-as-a-product.md`.** This
+**Status: 0.20, 0.21 and 0.22 shipped 2026-09-13; the panel now covers the parity table in section 5 — Phase 6 of `engine-as-a-product.md`.** This
 is the standing description of what the panel is for and how it is put
 together. It was written after reviewing every page of engine 0.19.3 in a
 browser at 1440 px, with the source open beside each screenshot; the review's
@@ -375,7 +375,7 @@ found. None is UI.
 | `modules`, `enable`, `disable`, `config` | Deploy › Modules | |
 | `version`, `versions`, `preflight`, `apply`, `rollback` | Deploy › Release | |
 | `secrets init` | — | CLI-only: bootstrap, before a panel exists |
-| `secrets set/remove/list` | Settings › Credentials | |
+| `secrets set/remove/list` | Settings › Credentials | shipped 0.22 |
 | `backup list/now/restore` | Backups › Sets | |
 | `backup drill` | Backups › Recovery | |
 | `offsite status/use-s3/test/list/fetch` | Backups › Offsite | |

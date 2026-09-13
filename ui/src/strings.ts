@@ -361,7 +361,7 @@ export const S = {
   alertsExplainer: 'One email when the backup system changes state, sent by the engine itself over SMTP, so it goes out when the application cannot. Repeated every six hours while the problem stands.',
   alertsEmail: 'Send to',
   alertsEmailHelp: 'Uses the SMTP settings of the email module.',
-  alertsLast: (level: string, at: string, ago: string) => `Last alert: backups ${level}, ${at} (${ago}).`,
+  alertsLast: (level: string, at: string, ago: string) => `Backups are ${level}. The last alert went out ${at} (${ago}).`,
   alertsNever: 'No alert has been sent.',
   engineTitle: 'Engine',
   engineExplainer: 'The panel itself. Updating it restarts this page for a few seconds; the firm’s system is not touched.',

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import * as docker from '../../docker/index.js'
 import { ENGINE_REPOSITORY, listVersions, storedRegistryAuth } from '../../registry.js'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 
 /**
  * The engine updating itself, from the panel — the last operation that still
@@ -40,6 +40,7 @@ export function engineRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('engine-update-started', {
       detail: `${ctx.engineVersion} → ${body.data.version}`,
       address: request.ip,
+    ...who(request),
     })
 
     const image = `ghcr.io/${ENGINE_REPOSITORY}:${body.data.version}`

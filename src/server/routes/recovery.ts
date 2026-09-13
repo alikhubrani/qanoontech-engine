@@ -6,7 +6,7 @@ import { listBackups } from '../../backup/service.js'
 import { RECOVERY_PASSPHRASE, SNAPSHOT_KEY, clearKeyCache, readSnapshotMarker } from '../../backup/snapshot.js'
 import { loadSecrets, loadState, saveSecrets, saveState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 
 export const S3_ACCESS_KEY_ID = 'S3_ACCESS_KEY_ID'
 export const S3_SECRET_ACCESS_KEY = 'S3_SECRET_ACCESS_KEY'
@@ -105,7 +105,7 @@ export function recoveryRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('offsite-changed', {
       detail: patch.enabled ? `${bucket} at ${endpoint}` : 'turned off',
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: {} }
   })
@@ -162,7 +162,7 @@ export function recoveryRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('recovery-passphrase-set', {
       detail: replacing ? 'replaced' : 'set',
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: { replacing } }
   })

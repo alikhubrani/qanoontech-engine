@@ -594,6 +594,26 @@ counted 81 documents (8.3 MB) and offered *Bring back* on the sets pruned
 locally; a retention change saved from the panel landed in `state.json` with
 a `settings-changed` entry and was put back the same way.
 
+**0.22 shipped 2026-09-13.** Settings as six tabs — Sign-in, Database,
+Registry, Credentials, Alerts, Engine — and Deploy as three — Release,
+Modules, Configuration. Sign-in edits the redirect URI, the allow-list and
+the client secret and offers Sign out everyone; the server refuses a save
+that would remove the signed-in account, and a session that cannot prove who
+it is may not change the list. Database asks the current database directly
+and proves a connection string before storing it, by the same
+`proveDatabaseUrl` the CLI now uses. Credentials lists every secret by name
+with what uses it. Every change event now carries who made it.
+
+Acceptance, on staging (`v0.22.0-rc.1`): a deploy run entirely from the
+panel rendered, downloaded, took `2026-09-13T11-40-36Z` as the pre-update
+set and applied, with the log on the page and the set in Backups; the
+Database tab reported the external server (PostgreSQL 17.11, 49 tables) as
+the CLI does; the allow-list guard is proved by its server test (a save
+dropping the signed-in account is refused with 400, an empty list with 400,
+a session without a subject with 409), because the browser tool could not
+type into the textarea. The parity table in `docs/panel.md` has no row left
+that says "nobody built it".
+
 ### Then, and separately — the application's query patterns
 
 **Before anything moves, not after.** `server/services/case.service.ts` alone

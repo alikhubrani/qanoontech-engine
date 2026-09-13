@@ -9,7 +9,7 @@ import { DATABASE_URL, databaseTarget } from '../../backup/target.js'
 import { forgetProbe } from '../../services.js'
 import { GENERATED_SECRETS, loadSecrets, loadState, saveSecrets, saveState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 import { S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY } from './recovery.js'
 
 export const ENTRA_CLIENT_SECRET = 'ENTRA_CLIENT_SECRET'
@@ -33,6 +33,7 @@ const ENGINE_SECRETS: Readonly<Record<string, string>> = {
   [ENTRA_CLIENT_SECRET]: 'Sign-in',
   [DATABASE_URL]: 'Database',
   GHCR_TOKEN: 'Registry',
+  GHCR_USERNAME: 'Registry',
 }
 
 /**
@@ -120,7 +121,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
         .filter(Boolean)
         .join(', '),
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: { restartNeeded } }
   })
@@ -128,7 +129,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
   app.post('/api/auth/sign-out-everyone', async (request) => {
     ctx.audit.record('sign-out-everyone', {
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     ctx.auth.destroyAllSessions()
     return { success: true, data: {} }
@@ -194,7 +195,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('database-changed', {
       detail: `${proof.target!.host}:${proof.target!.port}/${proof.target!.dbName}`,
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: { detail: proof.detail } }
   })
@@ -208,7 +209,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('database-changed', {
       detail: 'local (the postgres module)',
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: {} }
   })
@@ -253,7 +254,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('secret-set', {
       detail: name,
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: {} }
   })
@@ -282,7 +283,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     ctx.audit.record('secret-removed', {
       detail: name,
       address: request.ip,
-      ...(request.operator ? { subject: request.operator.upn || request.operator.oid } : {}),
+      ...who(request),
     })
     return { success: true, data: { detail: 'The offsite snapshot still carries it until the next tick rewrites it.' } }
   })

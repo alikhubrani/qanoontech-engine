@@ -3,7 +3,7 @@ import { findModule } from '../../catalogue/index.js'
 import * as docker from '../../docker/index.js'
 import { listServices } from '../../services.js'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 
 /**
  * The services over the API: what state they are in, their recent output,
@@ -41,7 +41,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: ServerContext): void {
       const module = findModule(id)
       if (!module) return refuse(reply, 404, `No service named '${id}'.`)
 
-      ctx.audit.record(`service-${action}`, { detail: id, address: request.ip })
+      ctx.audit.record(`service-${action}`, { detail: id, address: request.ip, ...who(request) })
       const result = await docker[action]([id])
       if (result.code !== 0) {
         return refuse(reply, 502, (result.stderr || `Could not ${action} ${id}.`).trim())

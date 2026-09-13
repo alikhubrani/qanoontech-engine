@@ -6,7 +6,7 @@ import { runPreflight } from '../../preflight/index.js'
 import { REGISTRY, listVersions, probeRegistry, storedRegistryAuth } from '../../registry.js'
 import { loadSecrets, loadState, saveSecrets, saveState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
-import { refuse } from '../guards.js'
+import { refuse, who } from '../guards.js'
 import { rollbackVersion, setVersion, type JobRunner } from '../jobs.js'
 
 const settingsPatchSchema = z.object({
@@ -53,7 +53,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
       Object.entries(body.data).filter(([, value]) => value !== undefined),
     )
     saveState({ ...state, settings: { ...state.settings, ...patch } }, ctx.dir)
-    ctx.audit.record('settings-changed', { address: request.ip })
+    ctx.audit.record('settings-changed', { address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
@@ -78,7 +78,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
 
     // Docker holds its own copy: pulls go through the daemon, not through us.
     const login = await docker.login(REGISTRY, body.data.username, body.data.token)
-    ctx.audit.record('registry-changed', { address: request.ip })
+    ctx.audit.record('registry-changed', { address: request.ip, ...who(request) })
     return {
       success: true,
       data: {
@@ -119,7 +119,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (!body.success) return refuse(reply, 400, 'A version is required.')
     if (jobs.isRunning()) return refuse(reply, 409, 'A deploy is already running.')
     setVersion(body.data.version, ctx.dir)
-    ctx.audit.record('version-set', { detail: body.data.version, address: request.ip })
+    ctx.audit.record('version-set', { detail: body.data.version, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
@@ -127,7 +127,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (jobs.isRunning()) return refuse(reply, 409, 'A deploy is already running.')
     const result = rollbackVersion(ctx.dir)
     if (!result.ok) return refuse(reply, 409, result.detail)
-    ctx.audit.record('version-set', { detail: `rollback to ${result.version}`, address: request.ip })
+    ctx.audit.record('version-set', { detail: `rollback to ${result.version}`, address: request.ip, ...who(request) })
     return { success: true, data: { version: result.version, detail: result.detail } }
   })
 
@@ -221,6 +221,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
           .filter(Boolean)
           .join('; '),
       address: request.ip,
+    ...who(request),
     })
     return { success: true, data: {} }
   })
@@ -235,7 +236,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (!state.enabled.includes(id)) {
       saveState({ ...state, enabled: [...state.enabled, id] }, ctx.dir)
     }
-    ctx.audit.record('module-enabled', { detail: id, address: request.ip })
+    ctx.audit.record('module-enabled', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
@@ -247,7 +248,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
 
     const state = loadState(ctx.dir)
     saveState({ ...state, enabled: state.enabled.filter((m) => m !== id) }, ctx.dir)
-    ctx.audit.record('module-disabled', { detail: id, address: request.ip })
+    ctx.audit.record('module-disabled', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
@@ -277,7 +278,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
     if (Object.keys(entry).length === 0) delete next[id]
     else next[id] = entry
     saveState({ ...state, resources: next }, ctx.dir)
-    ctx.audit.record('module-configured', { detail: `${id} resources`, address: request.ip })
+    ctx.audit.record('module-configured', { detail: `${id} resources`, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
@@ -299,7 +300,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
 
     const state = loadState(ctx.dir)
     saveState({ ...state, config: { ...state.config, [id]: body.data.config } }, ctx.dir)
-    ctx.audit.record('module-configured', { detail: id, address: request.ip })
+    ctx.audit.record('module-configured', { detail: id, address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
@@ -307,7 +308,7 @@ export function deployRoutes(app: FastifyInstance, ctx: ServerContext, jobs: Job
 
   app.post('/api/deploy', async (request, reply) => {
     if (!jobs.startDeploy()) return refuse(reply, 409, 'A deploy is already running.')
-    ctx.audit.record('deploy-started', { address: request.ip })
+    ctx.audit.record('deploy-started', { address: request.ip, ...who(request) })
     return { success: true, data: {} }
   })
 
