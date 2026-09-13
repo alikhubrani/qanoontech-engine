@@ -306,6 +306,17 @@ recovered box rendered `postgres, app, nginx, gotenberg` — the mirror is gone
 from the catalogue, so it is gone from the deployment. A restored compose file
 would have tried to start a container whose image no longer exists.
 
+**Amended again 2026-09-13, after Phase 3.** The snapshot now carries
+`DATABASE_URL`. When it is set, the database was never on the machine that
+died, and `recovery run` **does not restore it**: it fetches the newest set for
+its document index, brings the documents back, counts what the surviving
+database holds and prints it, and drills against that server. Before this
+amendment the command restored the newest set unconditionally — on a
+deployment like the firm's it would have replaced a live database with a copy
+up to an hour old as the final step of a command called "recover". If the
+external server is also gone, that is a deliberate `backup restore <id> --yes`,
+and the output says so rather than guessing.
+
 *A fresh VM was the original acceptance criterion and was judged unnecessary
 after this run. What it would additionally have tested — preflight on a virgin
 kernel, egress from an address that has never reached Cloudflare — is not

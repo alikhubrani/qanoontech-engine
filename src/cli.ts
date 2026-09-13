@@ -812,15 +812,47 @@ recovery
       const fetched = await fetchSet(newest.name)
       if (!fetched.ok) fail(fetched.detail)
 
-      step(6, 'Restoring the database, then the documents it names')
-      const restored = await restoreBackup(newest.name)
-      for (const s of restored.steps) console.log(`      ${s.ok ? '✓' : '✗'} ${s.step} — ${s.detail}`)
-      if (!restored.ok) fail('The restore did not complete.')
+      /*
+       * Restore the box, not necessarily the database.
+       *
+       * The snapshot carries DATABASE_URL. When it is set, the database was
+       * never on the machine that died — it is on its own server and, in every
+       * recovery this command is for, it is still there with the firm's data
+       * in it. Restoring the newest set over it would replace a live database
+       * with a copy up to an hour old, silently, as the last step of a command
+       * called "recover". That is the one outcome worse than the outage.
+       *
+       * So with an external database the set is fetched for its document
+       * index only, the database is left where it is, and what it holds is
+       * counted and printed so "recovered" says what is actually there. If the
+       * external server was also lost, that is a deliberate `backup restore
+       * <id> --yes` and the output says so.
+       */
+      const { databaseTarget, databaseIsExternal } = await import('./backup/target.js')
+      if (databaseIsExternal()) {
+        step(6, 'The database is external — it survived. Restoring documents only')
+        const t = databaseTarget()
+        if (!t.ok) fail(t.detail)
+        console.log(`      database is ${t.target.host}:${t.target.port}/${t.target.dbName} and was not on the box that died`)
+        const probe = await docker.psqlQuery(t.target, 'SELECT (SELECT count(*) FROM users) || \' users, \' || (SELECT count(*) FROM cases) || \' cases, \' || (SELECT count(*) FROM clients) || \' clients\'')
+        if (probe.code !== 0) {
+          fail(`      it cannot be read: ${(probe.stderr || '').trim().slice(0, 200)}\n      If that server is gone too, restore into a new one deliberately:  backup restore ${newest.name} --yes`)
+        }
+        console.log(`      it holds ${probe.stdout.trim()} — left exactly as it is`)
+        if (/^0 users/.test(probe.stdout.trim())) {
+          console.log('      (empty — if the data should be there, it was lost with the server: backup restore ' + newest.name + ' --yes)')
+        }
+      } else {
+        step(6, 'Restoring the database, then the documents it names')
+        const restored = await restoreBackup(newest.name)
+        for (const s of restored.steps) console.log(`      ${s.ok ? '✓' : '✗'} ${s.step} — ${s.detail}`)
+        if (!restored.ok) fail('The restore did not complete.')
+      }
 
       /*
-       * Documents after the database and driven by the set's own index, so a
-       * recovered deployment gets the files that existed when that backup was
-       * taken rather than whatever happens to be in the bucket now.
+       * Documents were on the box, so they come back either way, and from the
+       * set's own index so a recovered deployment gets the files that existed
+       * when that backup was taken rather than whatever is in the bucket now.
        */
       const { BACKUPS_DIR } = await import('./backup/service.js')
       const { stateDir } = await import('./state/store.js')
