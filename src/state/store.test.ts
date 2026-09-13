@@ -69,3 +69,28 @@ describe('the lock', () => {
     expect(withStateLock(() => 'free', dir, { timeoutMs: 100 })).toBe('free')
   })
 })
+
+describe('the Web Push pair', () => {
+  it('is a P-256 key in the encoding web-push and the browsers expect', async () => {
+    const { generateVapidPair } = await import('./store.js')
+    const pair = generateVapidPair()
+    const pub = Buffer.from(pair.publicKey, 'base64url')
+    const priv = Buffer.from(pair.privateKey, 'base64url')
+    expect(pub.length).toBe(65)
+    expect(pub[0]).toBe(4)
+    expect(priv.length).toBe(32)
+    expect(pair.publicKey).toMatch(/^[A-Za-z0-9_-]+$/)
+  })
+
+  it('is generated whole, and regenerated whole when a half is missing', async () => {
+    const { ensureGeneratedSecrets } = await import('./store.js')
+    const first = ensureGeneratedSecrets({})
+    expect(first.created).toEqual(expect.arrayContaining(['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']))
+    const again = ensureGeneratedSecrets(first.secrets)
+    expect(again.created).toEqual([])
+    const { VAPID_PRIVATE_KEY: _dropped, ...half } = first.secrets
+    const repaired = ensureGeneratedSecrets(half)
+    expect(repaired.created).toEqual(['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'])
+    expect(repaired.secrets['VAPID_PUBLIC_KEY']).not.toBe(first.secrets['VAPID_PUBLIC_KEY'])
+  })
+})

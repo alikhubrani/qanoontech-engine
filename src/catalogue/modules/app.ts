@@ -60,6 +60,11 @@ export const app = defineModule({
         JWT_REFRESH_EXPIRES_IN: '30d',
         // Encrypts integration credentials before they reach the database.
         SETTINGS_ENCRYPTION_KEY: ctx.secret('SETTINGS_ENCRYPTION_KEY'),
+        // Web Push identifies the deployment to the push services with this
+        // pair. Optional so a box that has not yet generated one still renders;
+        // the first deploy generates it, and until then the application uses
+        // the pair it made for itself.
+        ...vapidEnvironment(ctx.optionalSecret('VAPID_PUBLIC_KEY'), ctx.optionalSecret('VAPID_PRIVATE_KEY'), settings.alertEmail),
         UPLOAD_DIR: '/app/uploads',
         MAX_FILE_SIZE: String(settings.maxFileSizeBytes),
         BCRYPT_ROUNDS: '12',
@@ -106,3 +111,18 @@ export const app = defineModule({
     }
   },
 })
+
+/** The three Web Push variables, or nothing when the pair is not yet stored. */
+export function vapidEnvironment(
+  publicKey: string | undefined,
+  privateKey: string | undefined,
+  alertEmail: string | undefined,
+): Record<string, string> {
+  if (!publicKey || !privateKey) return {}
+  return {
+    VAPID_PUBLIC_KEY: publicKey,
+    VAPID_PRIVATE_KEY: privateKey,
+    // The contact the push services may use about this sender.
+    VAPID_SUBJECT: alertEmail ? `mailto:${alertEmail}` : 'https://qanoontech.com',
+  }
+}

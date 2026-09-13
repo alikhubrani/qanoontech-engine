@@ -7,7 +7,7 @@ import { proveDatabaseUrl } from '../../backup/database-switch.js'
 import { RECOVERY_PASSPHRASE, RECOVERY_SALT } from '../../backup/snapshot.js'
 import { DATABASE_URL, databaseTarget } from '../../backup/target.js'
 import { forgetProbe } from '../../services.js'
-import { GENERATED_SECRETS, loadSecrets, loadState, updateSecrets, updateState } from '../../state/store.js'
+import { GENERATED_SECRET_NAMES, isGeneratedSecret, loadSecrets, loadState, updateSecrets, updateState } from '../../state/store.js'
 import type { ServerContext } from '../context.js'
 import { refuse, who } from '../guards.js'
 import { S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY } from './recovery.js'
@@ -32,6 +32,8 @@ const ENGINE_SECRETS: Readonly<Record<string, string>> = {
   [RECOVERY_SALT]: 'Engine snapshot',
   [ENTRA_CLIENT_SECRET]: 'Sign-in',
   [DATABASE_URL]: 'Database',
+  VAPID_PUBLIC_KEY: 'Web Push',
+  VAPID_PRIVATE_KEY: 'Web Push',
   GHCR_TOKEN: 'Registry',
   GHCR_USERNAME: 'Registry',
 }
@@ -234,14 +236,14 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     const enabled = new Set(state.enabled)
     const names = new Set<string>(Object.keys(secrets))
     for (const module of CATALOGUE) for (const secret of module.secrets) names.add(secret.name)
-    for (const generated of GENERATED_SECRETS) names.add(generated.name)
+    for (const generated of GENERATED_SECRET_NAMES) names.add(generated)
     for (const name of Object.keys(ENGINE_SECRETS)) names.add(name)
 
     const list = [...names].sort().map((name) => {
       const modules = CATALOGUE.filter((m) => m.secrets.some((s) => s.name === name))
       const usedBy = modules.map((m) => m.title)
       if (ENGINE_SECRETS[name]) usedBy.push(ENGINE_SECRETS[name]!)
-      const generated = GENERATED_SECRETS.some((g) => g.name === name)
+      const generated = isGeneratedSecret(name)
       const inUse = generated || modules.some((m) => m.required || enabled.has(m.id)) || Boolean(ENGINE_SECRETS[name])
       return {
         name,
@@ -278,7 +280,7 @@ export function settingsRoutes(app: FastifyInstance, ctx: ServerContext): void {
     const secrets = loadSecrets(ctx.dir)
     if (!(name in secrets)) return refuse(reply, 404, `${name} is not stored.`)
     if (force !== '1') {
-      if (GENERATED_SECRETS.some((g) => g.name === name)) {
+      if (isGeneratedSecret(name)) {
         return refuse(reply, 409, `${name} is generated for this deployment and removing it would break it.`)
       }
       const enabled = new Set(loadState(ctx.dir).enabled)

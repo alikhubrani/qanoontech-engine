@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -313,6 +313,51 @@ export const GENERATED_SECRETS: readonly { name: string; generate: () => string 
 ]
 
 /**
+ * The Web Push (VAPID) key pair: an ECDSA P-256 key, encoded the way the
+ * `web-push` library and the browsers expect — the public key as the 65-byte
+ * uncompressed point, the private key as its 32-byte scalar, both base64url.
+ *
+ * Generated here rather than by the application so that the pair is in the
+ * secret store and in the encrypted snapshot, like every other credential the
+ * deployment cannot be rebuilt without. The application generated its own into
+ * `system_settings` until 1.16; the first deploy that injects this pair
+ * replaces it, which costs each subscribed phone one tap to re-enable push.
+ */
+export function generateVapidPair(): { publicKey: string; privateKey: string } {
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+  const jwk = privateKey.export({ format: 'jwk' }) as { x: string; y: string; d: string }
+  const point = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')])
+  return { publicKey: point.toString('base64url'), privateKey: jwk.d }
+}
+
+/**
+ * Secrets that only make sense together. A lone half is useless, so a pair
+ * with either name missing is regenerated whole.
+ */
+export const GENERATED_PAIRS: readonly {
+  names: readonly [string, string]
+  generate: () => [string, string]
+}[] = [
+  {
+    names: ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'],
+    generate: () => {
+      const pair = generateVapidPair()
+      return [pair.publicKey, pair.privateKey]
+    },
+  },
+]
+
+/** Every name the engine generates rather than asks for. */
+export const GENERATED_SECRET_NAMES: readonly string[] = [
+  ...GENERATED_SECRETS.map((g) => g.name),
+  ...GENERATED_PAIRS.flatMap((p) => p.names),
+]
+
+export function isGeneratedSecret(name: string): boolean {
+  return GENERATED_SECRET_NAMES.includes(name)
+}
+
+/**
  * Fill in any generated secret that is missing, leaving existing ones alone.
  *
  * Re-running must be safe. Regenerating JWT_SECRET signs everyone out;
@@ -330,6 +375,15 @@ export function ensureGeneratedSecrets(existing: Record<string, string>): {
     if (!secrets[name]) {
       secrets[name] = generate()
       created.push(name)
+    }
+  }
+  for (const { names, generate } of GENERATED_PAIRS) {
+    const [first, second] = names
+    if (!secrets[first] || !secrets[second]) {
+      const [a, b] = generate()
+      secrets[first] = a
+      secrets[second] = b
+      created.push(first, second)
     }
   }
   return { secrets, created }

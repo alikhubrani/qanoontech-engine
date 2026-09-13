@@ -106,6 +106,8 @@ export interface DeploymentSettings {
   readonly defaultLanguage: 'ar' | 'en'
   readonly logLevel: 'error' | 'warn' | 'info' | 'debug'
   readonly maxFileSizeBytes: number
+  /** Where the engine's own alerts go; also the Web Push contact. */
+  readonly alertEmail?: string
 }
 
 /**

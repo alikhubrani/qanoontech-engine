@@ -212,7 +212,7 @@ secrets
   .description('Delete a stored secret. Refuses one the deployment still needs')
   .option('--force', 'remove it anyway')
   .action(async (name: string, options: { force?: boolean }) => {
-    const { GENERATED_SECRETS } = await import('./state/store.js')
+    const { isGeneratedSecret } = await import('./state/store.js')
     const { CATALOGUE } = await import('./catalogue/index.js')
 
     const secrets = loadSecrets()
@@ -226,7 +226,7 @@ secrets
      * actually runs.
      */
     if (!options.force) {
-      if (GENERATED_SECRETS.some((g) => g.name === name)) {
+      if (isGeneratedSecret(name)) {
         fail(`${name} is generated for this deployment and removing it would break it. --force if you mean it.`)
       }
       const enabled = new Set(loadState().enabled)
