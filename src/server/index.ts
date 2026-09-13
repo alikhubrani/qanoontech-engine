@@ -11,6 +11,7 @@ import type { ServerContext } from './context.js'
 import { checkHost, checkOrigin, defaultAllowedHosts, hostOfRedirect, refuse } from './guards.js'
 import { startBackupLoop } from './backup-tick.js'
 import { JobRunner } from './jobs.js'
+import { auditRoutes } from './routes/audit.js'
 import { backupRoutes } from './routes/backups.js'
 import { deployRoutes } from './routes/deploy.js'
 import { engineRoutes } from './routes/engine.js'
@@ -75,6 +76,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   const app = Fastify({ logger: options.logger ?? true })
   app.register(cookie)
+  // Who is asking, once the session hook has said. Declared in context.ts.
+  app.decorateRequest('operator', undefined)
 
   app.addHook('onRequest', async (request, reply) => {
     if (!checkHost(request, ctx.guard)) {
@@ -93,15 +96,18 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     if (path === '/api/session' && request.method === 'DELETE') return
 
     const token = request.cookies[SESSION_COOKIE]
-    if (!token || !ctx.auth.touchSession(token)) {
+    const session = token ? ctx.auth.touchSession(token) : undefined
+    if (!session) {
       return refuse(reply, 401, 'Sign in first.')
     }
+    request.operator = session.subject
   })
 
   app.get('/api/health', async () => ({ success: true, data: {} }))
 
   sessionRoutes(app, ctx)
   overviewRoutes(app, ctx)
+  auditRoutes(app, ctx)
   serviceRoutes(app, ctx)
   deployRoutes(app, ctx, new JobRunner(dir))
   backupRoutes(app, ctx)

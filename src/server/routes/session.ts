@@ -127,7 +127,7 @@ export function sessionRoutes(app: FastifyInstance, ctx: ServerContext): void {
       address: request.ip,
       subject: verified.identity.upn || verified.identity.oid,
     })
-    setSessionCookie(reply, ctx.auth.createSession())
+    setSessionCookie(reply, ctx.auth.createSession(verified.identity))
     return reply.redirect('/', 302)
   })
 }

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
 import { loadSecrets, loadState, saveSecrets, saveState, stateDir } from '../state/store.js'
-import type { OffsiteStore } from './store.js'
+import type { OffsiteObject, OffsiteStore } from './store.js'
 
 /**
  * The engine's own state, encrypted, so a dead box is recoverable from a bucket.
@@ -312,11 +312,78 @@ export async function pushSnapshot(
     const temporary = join(dir, `${MARKER_FILE}.upload`)
     writeJsonAtomic(temporary, envelope)
     await store.put(SNAPSHOT_KEY, temporary, 'application/json')
-    writeJsonAtomic(join(dir, MARKER_FILE), { hash, uploadedAt: new Date().toISOString() })
+    const at = new Date().toISOString()
+    writeJsonAtomic(join(dir, MARKER_FILE), { hash, uploadedAt: at, verifiedAt: at })
     return { ok: true, sent: true, detail: `Engine state copied to ${store.label}.` }
   } catch (error) {
     return { ok: false, sent: false, detail: (error as Error).message.slice(0, 200) }
   }
+}
+
+export interface SnapshotMarker {
+  readonly hash?: string
+  /** When the current snapshot was last sent. */
+  readonly uploadedAt?: string
+  /** When the store was last asked and confirmed it still holds it. */
+  readonly verifiedAt?: string
+}
+
+/** What this box last recorded about its snapshot — a record, not the store. */
+export function readSnapshotMarker(dir = stateDir()): SnapshotMarker {
+  const raw = readJsonFile(join(dir, MARKER_FILE), { lenient: true })
+  return raw && typeof raw === 'object' ? (raw as SnapshotMarker) : {}
+}
+
+/** How long a "still there" answer is trusted before the store is asked again. */
+const VERIFY_EVERY_MS = 6 * 60 * 60 * 1000
+
+/**
+ * Ask the store whether the snapshot it should hold is still there.
+ *
+ * The marker says "sent at"; that is a record, and this programme's every bug
+ * has been a record trusted over the thing it describes. Four HEAD requests a
+ * day settle it. If the object is gone — a lifecycle rule, a hand on the
+ * bucket — the marker is cleared so the next tick sends it again, which is the
+ * same self-healing `reconcileOffsite` does for backup sets.
+ */
+export async function reconcileSnapshot(
+  dir = stateDir(),
+  store: OffsiteStore,
+  now = Date.now(),
+): Promise<{ checked: boolean; missing: boolean }> {
+  const marker = readSnapshotMarker(dir)
+  if (!marker.hash) return { checked: false, missing: false }
+  const verifiedAt = marker.verifiedAt ? Date.parse(marker.verifiedAt) : Number.NaN
+  if (Number.isFinite(verifiedAt) && now - verifiedAt < VERIFY_EVERY_MS) return { checked: false, missing: false }
+
+  let found: OffsiteObject | undefined
+  try {
+    found = await store.stat(SNAPSHOT_KEY)
+  } catch {
+    // Not knowing is not "missing". Leave the marker; the next tick asks again.
+    return { checked: false, missing: false }
+  }
+  if (found) {
+    writeJsonAtomic(join(dir, MARKER_FILE), { ...marker, verifiedAt: new Date(now).toISOString() })
+    return { checked: true, missing: false }
+  }
+  writeJsonAtomic(join(dir, MARKER_FILE), {})
+  return { checked: true, missing: true }
+}
+
+/**
+ * Whether a push outcome is worth a line in the audit, given the last one.
+ *
+ * A successful copy is not: the marker records it, and recording it in the
+ * trail the snapshot carries is what sent it twelve times an hour. A failure
+ * is, once — on the way in, the way `backup-stale` is — because a store that
+ * is down for a night is one fact, not 96 of them.
+ */
+export function snapshotAuditEvent(
+  outcome: Pick<SnapshotOutcome, 'ok'>,
+  wasFailing: boolean,
+): 'snapshot-failed' | null {
+  return !outcome.ok && !wasFailing ? 'snapshot-failed' : null
 }
 
 /**

@@ -34,11 +34,28 @@ import { readJsonFile, writeJsonAtomic } from '../lib/json-files.js'
  * the panel updated itself.
  */
 
+/**
+ * Who a session belongs to, as Entra stated it at sign-in.
+ *
+ * Stored so that a request can say who made it — the audit's `subject`, and
+ * the guard that stops the allow-list being saved without the person saving it
+ * on it. Sessions minted before 0.20.0 carry none, which reads as "the
+ * operator", and they expire within a day anyway.
+ */
+const operatorSchema = z.object({
+  oid: z.string(),
+  upn: z.string().default(''),
+  name: z.string().default(''),
+})
+
+export type Operator = z.infer<typeof operatorSchema>
+
 const sessionSchema = z.object({
   /** sha256 of the token. The cookie value itself is never stored. */
   tokenHash: z.string(),
   createdAt: z.number(),
   lastSeenAt: z.number(),
+  subject: operatorSchema.optional(),
 })
 
 export type Session = z.infer<typeof sessionSchema>
@@ -57,24 +74,29 @@ export class AuthStore {
   constructor(private readonly dir = stateDir()) {}
 
   /** Create a session; the returned token goes in the cookie and is never stored. */
-  createSession(): string {
+  createSession(subject?: Operator): string {
     const token = randomBytes(32).toString('hex')
     const now = Date.now()
     const sessions = this.liveSessions()
-    sessions.push({ tokenHash: hashToken(token), createdAt: now, lastSeenAt: now })
+    sessions.push({
+      tokenHash: hashToken(token),
+      createdAt: now,
+      lastSeenAt: now,
+      ...(subject ? { subject } : {}),
+    })
     this.writeSessions(sessions)
     return token
   }
 
-  /** Validate a token, sliding the idle window when it is good. */
-  touchSession(token: string): boolean {
+  /** Validate a token, sliding the idle window when it is good. The session, or nothing. */
+  touchSession(token: string): Session | undefined {
     const tokenHash = hashToken(token)
     const sessions = this.liveSessions()
     const session = sessions.find((s) => s.tokenHash === tokenHash)
-    if (!session) return false
+    if (!session) return undefined
     session.lastSeenAt = Date.now()
     this.writeSessions(sessions)
-    return true
+    return session
   }
 
   destroySession(token: string): void {

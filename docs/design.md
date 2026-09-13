@@ -444,17 +444,9 @@ One cheap precaution: keep user-facing strings in a single module rather than
 inline in JSX. No `t()`, no key catalogue — just do not scatter the English.
 It makes Arabic a week's work instead of a month's if a firm asks.
 
-| section | contents |
-| --- | --- |
-| Overview | health, disk, backup age, version, licence status — the page you leave open |
-| Services | per-service state, version, start/stop/restart, logs |
-| Modules | the catalogue, off by default, resource cost stated, config form per module |
-| Backups | list, create, restore, verification result, offsite status |
-| Updates | installed, available, changes, update, rollback, history |
-| Configuration | the settings form — storage, language, limits, addresses |
-| Licence | status, entitlements, expiry, heartbeat, enter a new licence |
-| Diagnostics | re-run preflight, download support bundle |
-| Settings | engine password, session length, TOTP, access |
+The pages and what each is for are in `docs/panel.md` (Phase 6, 2026-09-13),
+which replaced the table that used to sit here — it listed a Licence page and
+an engine password, both gone.
 
 **Stack.** Vite + React + TypeScript + Tailwind + shadcn/ui, built to static
 files, inheriting the application's design tokens so it reads as the same

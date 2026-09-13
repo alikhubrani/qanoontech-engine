@@ -523,17 +523,39 @@ the authentication, so the shell stays reachable when Microsoft is not. Which
 makes one rule binding on the phase below: **no operation may be panel-only.**
 Read Phase 5 with that in hand.
 
-### Phase 5 — The panel takes responsibility
+### Phase 5 — The panel takes responsibility — superseded by Phase 6
 
-**Read first.** `ui/src/pages/*` — 6,312 lines across seven pages, which is not
-nothing and is the reason the fix here is not "write a UI".
-
-**Build.** An overview that leads with health rather than inventory; a guided
-first run; recovery as a first-class flow rather than a command someone has to
-know exists. The honest diagnosis, from a single week: backups stopped for three
+Two sentences, written before the panel had been looked at: "an overview that
+leads with health rather than inventory; a guided first run; recovery as a
+first-class flow". The diagnosis behind them stands — backups stopped for three
 days, offsite failed for ten, 122 failures were logged and nobody was told, and
-the panel was green throughout. It reported state without taking responsibility
-for it. That is what "flimsy" is, and no storage engine fixes it.
+the panel was green throughout. It reported state without taking
+responsibility for it.
+
+On 2026-09-13 every page was reviewed in a browser with its source open, and
+the finding was that two sentences understated it: the panel describes a
+system that no longer exists (Drive, nightly sets), can state a falsehood
+(an external database shown as "not created"), hides a defect in plain sight
+(a snapshot feedback loop putting 135 lines a day into the activity feed),
+covers 19 of 40 CLI operations, and wears the application's previous palette.
+Expanding this phase would have been a list of fixes to pages whose
+information architecture is the problem.
+
+### Phase 6 — The panel, rebuilt around what it is for
+
+**Spec: `docs/panel.md`.** What the panel is for, in one sentence; what the
+review found, page by page; the information architecture (six pages, real
+URLs, tabs where a page holds more than one kind of thing); the engine work it
+needs (an audit catalogue with kinds, `assessDeployment()` shared with
+`engine status`, the snapshot loop fix, a probed database row, routes
+mirroring the CLI); the parity table; and three releases with their
+acceptance tests — 0.20 foundations and assurance, 0.21 recovery, 0.22 change
+and settings.
+
+The two rules it bends around: **no operation may be panel-only**, and **a
+record is never trusted over the thing it describes** — the verdict on the
+overview is computed at request time by the same function the CLI uses, never
+read from a stored conclusion.
 
 ### Then, and separately — the application's query patterns
 

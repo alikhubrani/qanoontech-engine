@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { offsiteClient, pendingOffsite, reconcileOffsite, uploadSet } from '../backup/offsite.js'
-import { pushSnapshot } from '../backup/snapshot.js'
+import { pushSnapshot, reconcileSnapshot, snapshotAuditEvent } from '../backup/snapshot.js'
 import { newestBackupAt, newestFullBackupAt, takeBackup } from '../backup/service.js'
 import { backupDue } from '../backup/schedule.js'
 import { backupHealth } from '../backup/health.js'
@@ -36,6 +36,8 @@ import type { ServerContext } from './context.js'
 const TICK_MS = 5 * 60 * 1000
 
 let running = false
+/** Whether the last snapshot push failed, so a failure is recorded once, not per tick. */
+let snapshotFailing = false
 
 export async function backupTick(ctx: ServerContext): Promise<void> {
   if (running) return
@@ -98,9 +100,18 @@ export async function backupTick(ctx: ServerContext): Promise<void> {
      * request at all. A snapshot failing must never stop a backup being taken,
      * so it returns an outcome rather than throwing.
      */
-    const snapshot = await pushSnapshot(ctx.dir, offsiteClient(ctx.dir).client, ctx.engineVersion)
-    if (snapshot.sent || !snapshot.ok) {
-      ctx.audit.record(snapshot.ok ? 'snapshot-copied' : 'snapshot-failed', { detail: snapshot.detail })
+    const store = offsiteClient(ctx.dir).client
+    const snapshot = await pushSnapshot(ctx.dir, store, ctx.engineVersion)
+    const snapshotEvent = snapshotAuditEvent(snapshot, snapshotFailing)
+    snapshotFailing = !snapshot.ok
+    if (snapshotEvent) ctx.audit.record(snapshotEvent, { detail: snapshot.detail })
+    if (snapshot.ok && !snapshot.sent && store) {
+      const check = await reconcileSnapshot(ctx.dir, store)
+      if (check.missing) {
+        ctx.audit.record('snapshot-failed', {
+          detail: 'The engine snapshot is not in the store any more; it will be sent again on the next tick.',
+        })
+      }
     }
 
     /*

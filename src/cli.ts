@@ -60,17 +60,31 @@ program
     }
 
     /*
-     * Backups, here, because this is the command anyone runs without being
-     * asked to. A firm's backups stopped for three days and every screen said
-     * green -- nothing had failed, it had stopped being asked -- so the state
-     * belongs on the page people already look at rather than behind a
-     * subcommand they would have to suspect something to run.
+     * The assessment, here, because this is the command anyone runs without
+     * being asked to. A firm's backups stopped for three days and every screen
+     * said green -- nothing had failed, it had stopped being asked -- so the
+     * state belongs on the page people already look at rather than behind a
+     * subcommand they would have to suspect something to run. It is the same
+     * function the panel's overview draws, so the two cannot disagree.
      */
-    const { backupHealth } = await import('./backup/health.js')
-    const health = backupHealth()
-    const mark = health.level === 'ok' ? '✓' : health.level === 'warn' ? '!' : '✗'
+    const { readDeployment } = await import('./health/deployment.js')
+    const assessment = await readDeployment()
+    const mark = assessment.verdict === 'protected' ? '✓' : assessment.verdict === 'attention' ? '!' : '✗'
+    const word =
+      assessment.verdict === 'protected' ? 'protected' : assessment.verdict === 'attention' ? 'needs attention' : 'AT RISK'
     console.log('')
-    console.log(`backups      ${mark} ${health.detail}`)
+    console.log(`verdict        ${mark} ${word}`)
+    if (assessment.application.running) console.log(`running        ${assessment.application.running}`)
+    console.log(`backups        ${assessment.backups.detail}`)
+    console.log(
+      `offsite        ${assessment.offsite.enabled ? (assessment.offsite.ready ? assessment.offsite.label : `not usable — ${assessment.offsite.reason}`) : 'off'}`,
+    )
+    console.log(
+      `recovery       ${assessment.recovery.passphraseSet ? `snapshot copied ${assessment.recovery.lastCopiedAt ?? 'never'}` : 'no passphrase'}`,
+    )
+    for (const finding of assessment.findings) {
+      console.log(`               ${finding.level === 'risk' ? '✗' : '!'} ${finding.title} — ${finding.detail}`)
+    }
   })
 
 program
