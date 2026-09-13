@@ -295,16 +295,25 @@ function shellQuote(value: string): string {
 // The engine is deliberately not on the deployment's network, so it cannot
 // reach `postgres` by name — and its own image carries no database tools. Both
 // gaps close the same way: a short-lived helper container, run on the project
-// network, from the same pinned postgres image the deployment itself runs.
-// Same image, same tools, so pg_dump can never be newer than the server it is
-// dumping.
+// network, from a postgres image that carries the client tools.
+//
+// **The helper's version and the module's version are pinned separately, and
+// the helper must be the newer of the two.** This comment used to say the
+// opposite — that using the deployment's own image meant pg_dump "can never be
+// newer than the server" — and had the constraint backwards. pg_dump refuses a
+// server *newer* than itself ("aborting because of server version mismatch",
+// measured against a 17 server with the 15 client); a client newer than the
+// server is fine. So the helper tracks the newest server this engine may meet,
+// and the module pin stays where the firm's data directory is: a major version
+// there is an on-disk format, and moving it is a dump-and-restore, never a
+// tag change.
 //
 // These are the only verbs here that run `sh -c`. The scripts are fixed
 // templates; the only variable pieces are file paths built from a
 // timestamp-shaped id the backup service validates, and credentials, which
 // travel as environment variables — never in the command line.
 
-const POSTGRES_HELPER_IMAGE = 'postgres:15-alpine'
+const POSTGRES_HELPER_IMAGE = 'postgres:17-alpine'
 const BUSYBOX_HELPER_IMAGE = 'busybox'
 
 /** The engine's own volume, as the README and rescue.sh mount it. */
