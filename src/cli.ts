@@ -579,49 +579,22 @@ database
   .command('use')
   .description('Use a database elsewhere. The URL is read from stdin and proven before it is stored')
   .action(async () => {
-    const { parseDatabaseUrl, DATABASE_URL } = await import('./backup/target.js')
+    const { DATABASE_URL } = await import('./backup/target.js')
+    const { proveDatabaseUrl } = await import('./backup/database-switch.js')
     const { loadSecrets, saveSecrets } = await import('./state/store.js')
 
     const url = readFileSync(0, 'utf8').trim()
     if (url === '') fail('Nothing on stdin. Pipe the URL in.')
-    const parsed = parseDatabaseUrl(url)
-    if (!parsed.ok) fail(parsed.detail)
-
     /*
-     * Proven before stored, as the S3 keys and the licence were. A URL that is
-     * saved and then found not to work has already been rendered into the
-     * compose file, and the application is the thing that discovers it.
+     * Proven before stored, as the S3 keys were, and by the same checks the
+     * panel runs (`backup/database-switch.ts`): it answers, its sslmode does
+     * not promise what the server cannot give, and the role can create the
+     * drill's scratch database.
      */
-    const probe = await docker.psqlQuery(parsed.target, 'SELECT version()')
-    if (probe.code !== 0) {
-      fail(`Could not connect: ${(probe.stderr || '').trim().slice(0, 300)}\nNothing was changed.`)
-    }
-    /*
-     * The application's driver is not libpq. node-postgres treats
-     * `sslmode=prefer` as `verify-full` and will not fall back, so a URL that
-     * every engine helper is happy with can leave the application unable to
-     * connect at all — found on staging, where the entrypoint's wait loop
-     * reported "PostgreSQL is unavailable" over an SSL mismatch it had hidden.
-     * Ask the server, and refuse here, with the two honest ways out.
-     */
-    const { sslmodeDemandsTls } = await import('./backup/target.js')
-    if (sslmodeDemandsTls(parsed.target.sslmode)) {
-      const ssl = await docker.psqlQuery(parsed.target, 'SHOW ssl')
-      if (ssl.code === 0 && ssl.stdout.trim() === 'off') {
-        fail(
-          `The server has ssl = off, but the URL says sslmode=${parsed.target.sslmode}. The engine's tools would fall back to plain text; the application's driver will not, and would refuse to connect.\n` +
-            `Either use sslmode=disable (true to what this server offers) or turn ssl on in the server first.\nNothing was changed.`,
-        )
-      }
-    }
-
-    // Drill needs to create a scratch database; refuse a role that cannot,
-    // here, rather than at the first drill on the new server.
-    const can = await docker.psqlQuery(parsed.target, 'SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user')
-    if (can.code === 0 && can.stdout.trim() !== 't') {
-      fail(`The role ${parsed.target.dbUser} cannot CREATE DATABASE, so backup drills would fail against this server. Grant CREATEDB and try again.\nNothing was changed.`)
-    }
-
+    const proof = await proveDatabaseUrl(url)
+    if (!proof.ok) fail(`${proof.detail}\nNothing was changed.`)
+    const parsed = { target: proof.target! }
+    const probe = { stdout: proof.server ?? '' }
     saveSecrets({ ...loadSecrets(), [DATABASE_URL]: url })
     console.log(`Database is now ${parsed.target.host}:${parsed.target.port}/${parsed.target.dbName} — ${probe.stdout.trim().split(' ').slice(0, 2).join(' ')}`)
     console.log('The postgres module will not be rendered. Run `apply` to move the application over.')

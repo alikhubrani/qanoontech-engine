@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { api, ApiError, type DeployStatus, type ImageProgress, type PreflightCheck } from '../api'
 import { S } from '../strings'
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Confirm } from '@/components/confirm'
 import { cn } from '@/lib/utils'
 
@@ -40,29 +42,46 @@ interface Settings {
  * page is the order that makes sense to do them in. A wizard that locks steps
  * is wrong the day you need step 4 alone.
  */
+type Tab = 'release' | 'modules' | 'configuration'
+const TABS: Tab[] = ['release', 'modules', 'configuration']
+
 export function Deploy() {
   const { data, refresh } = useOverview()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const tab = (TABS.find((t) => location.pathname === `/deploy/${t}`) ?? 'release') as Tab
   const [error, setError] = useState<string | null>(null)
   const [deploying, setDeploying] = useState(false)
   const onChanged = useCallback(() => void refresh(), [refresh])
 
   return (
     <Page>
-      <PageHeader title={S.deployTitle} description={S.deployPageExplainer} />
+      <PageHeader title={S.deployTitle} description={S.deployPageExplainer}>
+        <Tabs value={tab} onValueChange={(next) => navigate(next === 'release' ? '/deploy' : `/deploy/${next}`)}>
+          <TabsList>
+            <TabsTrigger value="release">{S.tabRelease}</TabsTrigger>
+            <TabsTrigger value="modules">{S.tabModules}</TabsTrigger>
+            <TabsTrigger value="configuration">{S.tabConfiguration}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </PageHeader>
       {error && <Note tone="destructive">{error}</Note>}
-      <VersionSection
-        running={data.runningVersion}
-        version={data.version}
-        previousVersion={data.previousVersion}
-        deploying={deploying}
-        onError={setError}
-        onChanged={onChanged}
-      />
-      <PreflightSection />
-      <DeploySection version={data.runningVersion ?? data.version} onChanged={onChanged} onRunning={setDeploying} />
-      <ModulesSection onError={setError} onChanged={onChanged} />
-      <SettingsSection onError={setError} onChanged={onChanged} />
-      <RegistrySection onError={setError} />
+      {tab === 'release' && (
+        <>
+          <VersionSection
+            running={data.runningVersion}
+            version={data.version}
+            previousVersion={data.previousVersion}
+            deploying={deploying}
+            onError={setError}
+            onChanged={onChanged}
+          />
+          <PreflightSection />
+          <DeploySection version={data.runningVersion ?? data.version} onChanged={onChanged} onRunning={setDeploying} />
+        </>
+      )}
+      {tab === 'modules' && <ModulesSection onError={setError} onChanged={onChanged} />}
+      {tab === 'configuration' && <SettingsSection onError={setError} onChanged={onChanged} />}
     </Page>
   )
 }
@@ -564,82 +583,6 @@ function SettingsSection({
           {busy ? S.workingEllipsis : S.settingsSave}
         </Button>
       </form>
-    </Section>
-  )
-}
-
-function RegistrySection({ onError }: { onError: (message: string | null) => void }) {
-  const [configuredAs, setConfiguredAs] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [username, setUsername] = useState('')
-  const [token, setToken] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  useEffect(() => {
-    void api
-      .get<{ configured: boolean; username: string | null }>('/api/registry')
-      .then((data) => {
-        setConfiguredAs(data.username)
-        setEditing(data.username === null)
-      })
-      .catch(() => undefined)
-  }, [])
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    onError(null)
-    try {
-      const result = await api.put<{ detail: string }>('/api/registry', { username, token })
-      setNotice(result.detail)
-      setConfiguredAs(username)
-      setToken('')
-      setEditing(false)
-    } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Section
-      title={S.registryTitle}
-      description={S.registryExplainer}
-      actions={
-        configuredAs && !editing ? (
-          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-            {S.registryChange}
-          </Button>
-        ) : undefined
-      }
-    >
-      {configuredAs && !editing ? (
-        <p className="text-sm">{S.registryConfigured(configuredAs)}</p>
-      ) : (
-        <form onSubmit={save} className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={S.registryUsername} htmlFor="reg-user">
-              <Input id="reg-user" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" />
-            </Field>
-            <Field label={S.registryToken} htmlFor="reg-token">
-              <Input id="reg-token" type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" />
-            </Field>
-          </div>
-          {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
-          <div className="flex gap-2">
-            <Button type="submit" disabled={busy || !username || !token}>
-              {busy ? S.workingEllipsis : S.registrySave}
-            </Button>
-            {configuredAs && (
-              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                {S.cancel}
-              </Button>
-            )}
-          </div>
-        </form>
-      )}
     </Section>
   )
 }

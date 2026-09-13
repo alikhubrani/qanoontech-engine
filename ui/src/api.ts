@@ -230,3 +230,52 @@ export interface RestoreResult {
   ok: boolean
   steps: { step: string; ok: boolean; detail?: string }[]
 }
+
+export interface AuthStatus {
+  tenantId: string
+  clientId: string
+  redirectUri: string
+  allowedObjectIds: string[]
+  clientSecretSet: boolean
+  me: Operator | null
+}
+
+export type DatabaseStatus =
+  | { ok: false; detail: string }
+  | {
+      ok: true
+      external: boolean
+      host: string
+      port: number
+      dbName: string
+      dbUser: string
+      sslmode: string | null
+      reachable: boolean
+      server: string | null
+      detail: string
+      tables: number | null
+    }
+
+export interface DatabaseProof {
+  ok: boolean
+  detail: string
+  server: string | null
+  tables: number | null
+  host: string | null
+  port: number | null
+  dbName: string | null
+}
+
+export interface SecretEntry {
+  name: string
+  set: boolean
+  usedBy: string[]
+  generated: boolean
+  inUse: boolean
+  title: string | null
+}
+
+export interface AlertsStatus {
+  email: string
+  last: { level: string; sentAt: string } | null
+}

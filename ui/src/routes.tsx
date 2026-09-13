@@ -57,11 +57,11 @@ export const areaRoutes: Record<string, string> = {
   services: '/services',
   deploy: '/deploy',
   backups: '/backups',
-  offsite: '/backups',
-  recovery: '/backups',
+  offsite: '/backups/offsite',
+  recovery: '/backups/recovery',
   'sign-in': '/settings',
-  database: '/settings',
-  registry: '/deploy',
+  database: '/settings/database',
+  registry: '/settings/registry',
 }
 
 export function titleFor(pathname: string): string {

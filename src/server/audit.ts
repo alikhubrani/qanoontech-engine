@@ -97,6 +97,12 @@ export type AuditEvent =
   | 'offsite-changed'
   | 'recovery-passphrase-set'
   | 'backup-drilled'
+  /* 0.22: settings from the panel. */
+  | 'auth-changed'
+  | 'sign-out-everyone'
+  | 'database-changed'
+  | 'secret-set'
+  | 'secret-removed'
 
 interface EventDescription {
   readonly label: string
@@ -139,6 +145,11 @@ export const AUDIT_EVENTS: Readonly<Record<AuditEvent, EventDescription>> = {
   'offsite-changed': { label: 'Offsite storage changed', kind: 'change' },
   'recovery-passphrase-set': { label: 'Recovery passphrase set', kind: 'security' },
   'backup-drilled': { label: 'Backup drilled', kind: 'routine' },
+  'auth-changed': { label: 'Sign-in settings changed', kind: 'security' },
+  'sign-out-everyone': { label: 'Everyone signed out', kind: 'security' },
+  'database-changed': { label: 'Database changed', kind: 'change' },
+  'secret-set': { label: 'Credential stored', kind: 'change' },
+  'secret-removed': { label: 'Credential removed', kind: 'change' },
 }
 
 /**

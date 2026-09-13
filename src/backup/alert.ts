@@ -63,7 +63,7 @@ export function noteHealthLevel(level: BackupHealth['level'], dir = stateDir(), 
   return true
 }
 
-function readAlert(dir: string): AlertRecord | undefined {
+export function readAlert(dir: string): AlertRecord | undefined {
   const raw = readJsonFile(join(dir, ALERT_FILE), { lenient: true })
   return raw && typeof raw === 'object' ? (raw as AlertRecord) : undefined
 }
