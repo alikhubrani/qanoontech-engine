@@ -1,10 +1,9 @@
 import { existsSync } from 'node:fs'
-import type { Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import cookie from '@fastify/cookie'
 import fastifyStatic from '@fastify/static'
-import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify'
+import Fastify, { type FastifyHttpOptions, type FastifyInstance, type FastifyRequest, type RawServerDefault } from 'fastify'
 import { loadState, stateDir } from '../state/store.js'
 import { engineVersion } from '../version.js'
 import { AuditLog } from './audit.js'
@@ -84,7 +83,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
    * Typed by hand because an inline object here makes Fastify's overloads
    * pick the HTTP/2 server and every route below stops type-checking.
    */
-  const logger: FastifyServerOptions['logger'] =
+  const logger: NonNullable<FastifyHttpOptions<RawServerDefault>['logger']> =
     options.logger === false
       ? false
       : {
@@ -94,11 +93,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
               url: loggedUrl(request.url),
               host: request.host,
               remoteAddress: request.ip,
-              remotePort: request.socket?.remotePort,
+              remotePort: request.socket?.remotePort ?? 0,
             }),
           },
         }
-  const app = Fastify<Server>({ logger })
+  const app = Fastify({ logger })
   app.register(cookie)
   // Who is asking, once the session hook has said. Declared in context.ts.
   app.decorateRequest('operator', undefined)
