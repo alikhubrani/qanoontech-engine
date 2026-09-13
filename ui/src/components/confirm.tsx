@@ -9,8 +9,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { buttonVariants } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import { S } from '../strings'
 
 /**
@@ -48,12 +46,12 @@ export function Confirm({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>{S.cancel}</AlertDialogCancel>
           <AlertDialogAction
+            variant={danger ? 'destructive' : 'default'}
             disabled={busy}
             onClick={(event) => {
               event.preventDefault()
               onConfirm()
             }}
-            className={cn(danger && buttonVariants({ variant: 'destructive' }))}
           >
             {busy ? S.workingEllipsis : confirmLabel}
           </AlertDialogAction>

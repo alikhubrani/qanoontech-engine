@@ -25,7 +25,7 @@ function TabsList({
         data-slot="tabs-list"
         className={cn(
           variant === 'line'
-            ? 'flex w-full items-center gap-6 overflow-x-auto border-b border-border text-muted-foreground'
+            ? 'flex w-full flex-wrap items-center gap-x-6 border-b border-border text-muted-foreground'
             : 'inline-flex h-9 items-center rounded-md bg-muted p-1 text-muted-foreground',
           className,
         )}

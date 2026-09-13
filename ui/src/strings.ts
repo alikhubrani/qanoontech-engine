@@ -195,6 +195,7 @@ export const S = {
     'pre-restore': 'before restore',
   } as Record<string, string>,
   setsTitle: 'Sets on this box',
+  backupsVerified: 'Taken and verified',
   nextDue: 'Next due',
   everyInterval: 'Hourly; documents daily',
   kept: 'Kept',

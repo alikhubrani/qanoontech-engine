@@ -83,7 +83,7 @@ export function Backups() {
       {error && <Note tone="destructive">{error}</Note>}
 
       <FactsRow className="border-t-0 pt-0">
-        <Fact eyebrow={S.factBackups} value={a.backups.newestAt ? ago(a.backups.newestAt) : S.never} caption={a.backups.detail} tone={backupLevelTone(a.backups.level)} />
+        <Fact eyebrow={S.factBackups} value={a.backups.newestAt ? ago(a.backups.newestAt) : S.never} caption={a.backups.level === 'ok' ? S.backupsVerified : a.backups.detail} tone={backupLevelTone(a.backups.level)} />
         <Fact eyebrow={S.nextDue} value={a.backups.nextDueAt ? ago(a.backups.nextDueAt) : '—'} caption={S.everyInterval} />
         <Fact
           eyebrow={S.factOffsite}
