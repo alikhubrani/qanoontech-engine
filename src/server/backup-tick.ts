@@ -21,7 +21,17 @@ import type { ServerContext } from './context.js'
  * Five minutes, because the interval it serves can be five minutes. A tick
  * coarser than the schedule turns "hourly" into "hourly, give or take a
  * quarter of an hour", and the point of the interval is that the number means
- * something. A tick that finds nothing due costs two `readdir`s.
+ * something.
+ *
+ * An idle tick is not free, and this comment used to say it was — "two
+ * `readdir`s" was true before the drift check and the document sync were
+ * attached to it. It now costs one helper container spawn to list the uploads
+ * volume and two R2 LIST requests, 288 times a day. Measured and accepted on
+ * 2026-09-13: with retention a flat 30 days the set count is bounded at about
+ * 76, so both lists stay a single page forever, and the five-minute cadence is
+ * what bounds how long a newly uploaded document exists only on this box. A
+ * wrong claim about cost is how the next person makes a bad decision
+ * confidently, so the number is written down rather than the wish.
  */
 const TICK_MS = 5 * 60 * 1000
 
