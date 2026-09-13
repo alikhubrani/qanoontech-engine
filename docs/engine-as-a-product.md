@@ -508,6 +508,22 @@ stop reading the files. A firm must not have to do anything.
 Postgres. Then take an existing `.106`-shaped deployment with JSON state and
 watch it migrate itself on first start, with the audit trail intact.
 
+**Reviewed again 2026-09-13, after Phase 6, and left dropped.** The two
+things it was for are answered without a database: recovery is the
+encrypted snapshot in the bucket (Phase 2, proved by tearing `.106` down and
+bringing it back), and transactional writes are the lock every state change
+now goes through (0.22.1). Postgres would put a network dependency in front
+of the one component that must start when everything else is broken, and
+would need a credential before any credential exists. SQLite has nothing to
+index: state is 9 KB, the audit grows about 275 KB a year. And on the worst
+day, `cat state.json` needs no tool at all.
+
+Reopen it if any of these becomes true: more than one operator writing at
+once as a normal condition; the audit needing real queries (then an
+audit-only SQLite store, leaving state and secrets as files); or the engine
+becoming a control plane for many firms, which is a different product and
+would want Postgres.
+
 ### Phase 4a — Operator sign-in moves to Entra
 
 Specified separately in [`operator-sign-in.md`](./operator-sign-in.md); slotted
