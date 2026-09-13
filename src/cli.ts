@@ -1137,6 +1137,26 @@ for (const verb of ['start', 'stop', 'restart'] as const) {
 }
 
 program
+  .command('support-bundle [path]')
+  .description('Write the redacted support bundle the panel offers: to a file, or to stdout with "-"')
+  .action(async (path: string | undefined) => {
+    const { buildSupportBundle } = await import('./server/routes/support.js')
+    const { AuditLog } = await import('./server/audit.js')
+    const { stateDir } = await import('./state/store.js')
+    const { engineVersion } = await import('./version.js')
+    const { writeFileSync } = await import('node:fs')
+
+    const bundle = await buildSupportBundle(stateDir(), new AuditLog(), engineVersion())
+    if (path === '-') {
+      process.stdout.write(bundle.gzipped)
+      return
+    }
+    const target = path ?? bundle.filename
+    writeFileSync(target, bundle.gzipped)
+    console.error(`wrote ${target} (${bundle.gzipped.length} bytes, gzipped JSON)`)
+  })
+
+program
   .command('logs <service>')
   .description('Recent output from one service')
   .option('-n, --lines <count>', 'how many lines', '200')

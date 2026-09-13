@@ -362,12 +362,16 @@ The box is unreachable by us by design, so the only diagnostic channel is
 something the firm downloads and chooses to send. Nothing leaves the deployment
 unless they send it.
 
-**Collect:** container logs (bounded), image tags and digests, health history,
-the generated compose file, disk and volume sizes, database size and migration
-state, preflight results, engine audit log, licence status.
+**Collect:** container logs (bounded), the application's own error log from
+its volume (the newest seven daily files, tail-capped — stdout's 300 lines are
+minutes on a busy box, and the file is thirty days), image tags and digests,
+health history, the generated compose file, disk and volume sizes, database
+size and migration state, preflight results, engine audit log, licence status.
 
 **Never collect:** anything under `uploads/`, any database row, any log line
-carrying a document or client name.
+carrying a document or client name, the application's security log (the firm's
+record of who signed in, which should not leave the premises because somebody
+clicked "download diagnostics").
 
 **Redaction is not a checkbox.** Redactors run by default over every secret key
 name, and the redactor list is unit-tested against the actual configuration

@@ -1,10 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import cookie from '@fastify/cookie'
 import fastifyStatic from '@fastify/static'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { loadState, stateDir } from '../state/store.js'
+import { engineVersion } from '../version.js'
 import { AuditLog } from './audit.js'
 import { AuthStore } from './auth.js'
 import type { ServerContext } from './context.js'
@@ -155,26 +156,6 @@ export async function startServer(port = 8080, host = '0.0.0.0'): Promise<void> 
   // publishes this port on the box's chosen address only.
   const app = buildServer()
   await app.listen({ port, host })
-}
-
-function engineVersion(): string {
-  // The image bakes the release tag in; package.json is the fallback for a
-  // checkout run by hand and is the number that once lagged behind the tag.
-  const baked = process.env.ENGINE_VERSION?.trim()
-  if (baked && baked !== 'dev') return baked
-  try {
-    const here = dirname(fileURLToPath(import.meta.url))
-    for (const relative of ['../../package.json', '../../../package.json']) {
-      const path = join(here, relative)
-      if (existsSync(path)) {
-        const parsed = JSON.parse(readFileSync(path, 'utf8')) as { version?: string }
-        if (parsed.version) return parsed.version
-      }
-    }
-  } catch {
-    /* fall through */
-  }
-  return 'dev'
 }
 
 function defaultUiDir(): string | undefined {

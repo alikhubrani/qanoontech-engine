@@ -320,6 +320,7 @@ const BUSYBOX_HELPER_IMAGE = 'busybox'
 export const ENGINE_VOLUME = 'qanoontech_engine'
 export const PROJECT_NETWORK = `${PROJECT_NAME}_${NETWORK_NAME}`
 const UPLOADS_VOLUME = `${PROJECT_NAME}_uploads_data`
+const LOGS_VOLUME = `${PROJECT_NAME}_logs_data`
 
 /**
  * Re-exported from `backup/target.ts`, which is the one place that decides
@@ -495,6 +496,45 @@ export async function listUploads(options?: DockerOptions): Promise<CommandResul
       'sh', '-c',
       `cd /uploads && find . -type f -not -path './.incoming/*' | while IFS= read -r f; do ` +
         `printf '%s %s\n' "$(stat -c %s "$f")" "\${f#./}"; done`,
+    ],
+    options,
+  )
+}
+
+/**
+ * The application's own error log, read from the volume it writes to.
+ *
+ * The support bundle collects `docker compose logs --tail 300` per service,
+ * which is stdout. The application writes its structured lines to stdout
+ * too, but 300 lines is minutes on a busy box, and the file it keeps for
+ * exactly this purpose -- `error-<date>.log`, thirty days of it, on
+ * `logs_data` -- was on a volume the engine never read. A bundle downloaded
+ * an hour after a failure carried nothing about it. Criterion 13 of the
+ * application's error-handling audit is that the bundle and the error log
+ * meet; this is where they meet.
+ *
+ * The newest seven daily files, each tail-capped, so the bundle stays a
+ * download rather than an archive. Only `error-*`: the combined log is every
+ * request and the security log is the firm's twelve-month record of who signed
+ * in, which is deliberately not something that leaves the premises because
+ * somebody clicked "download diagnostics".
+ *
+ * An absent volume -- a box with no application installed -- is not an error;
+ * the helper prints nothing.
+ */
+export async function readApplicationErrors(
+  bytesPerFile = 300_000,
+  options?: DockerOptions,
+): Promise<CommandResult> {
+  return run(
+    'docker',
+    [
+      'run', '--rm',
+      '--volume', `${LOGS_VOLUME}:/logs:ro`,
+      BUSYBOX_HELPER_IMAGE,
+      'sh', '-c',
+      `cd /logs 2>/dev/null || exit 0; for f in $(ls error-*.log 2>/dev/null | sort | tail -n 7); do ` +
+        `printf '### %s\n' "$f"; tail -c ${Math.trunc(bytesPerFile)} "$f"; done`,
     ],
     options,
   )

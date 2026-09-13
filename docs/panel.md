@@ -383,7 +383,7 @@ found. None is UI.
 | `recovery passphrase/status` | Backups › Recovery | |
 | `recovery run`, `recovery show` | — | CLI-only: runs on a box with no panel yet; `show` prints secrets |
 | `auth status/redirect/allow/sign-out-everyone` | Settings › Sign-in | |
-| `self-update` | Settings › Engine | |
+| `self-update`, `support-bundle` | Settings › Engine | `support-bundle` added 0.24: the bundle was panel-only |
 | `start/stop/restart/logs/ps` | Services | |
 | `render`, `serve` | — | CLI-only: developer tools |
 

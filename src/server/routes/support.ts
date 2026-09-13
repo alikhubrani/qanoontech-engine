@@ -5,6 +5,7 @@ import { listBackups } from '../../backup/service.js'
 import * as docker from '../../docker/index.js'
 import { runPreflight } from '../../preflight/index.js'
 import { loadSecrets, loadState } from '../../state/store.js'
+import type { AuditLog } from '../audit.js'
 import type { ServerContext } from '../context.js'
 import { listServices } from './services.js'
 
@@ -13,9 +14,10 @@ import { listServices } from './services.js'
  * Nothing leaves the deployment unless the firm downloads this and chooses to
  * send it.
  *
- * Collected: service states, bounded logs, the generated compose file, the
- * deployment state, preflight, backup inventory, the audit
- * log. Never collected: anything under uploads, any database row, any secret.
+ * Collected: service states, bounded logs, the application's own error log
+ * from its volume, the generated compose file, the deployment state,
+ * preflight, backup inventory, the audit log. Never collected: anything under
+ * uploads, any database row, any secret, the application's security log.
  *
  * One gzipped JSON document rather than a tarball, on purpose: we are the
  * only consumer, JSON is greppable, and a single writer is a single place
@@ -76,9 +78,21 @@ export function scrubValues(text: string, secrets: Readonly<Record<string, strin
   return out
 }
 
-export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
-  app.get('/api/support-bundle', async (_request, reply) => {
-    const dir = ctx.dir
+export interface SupportBundle {
+  readonly filename: string
+  readonly gzipped: Buffer
+}
+
+/**
+ * Build the bundle. Shared by the panel route and `support-bundle` on the
+ * CLI, because the CLI is what a box with no panel session -- or a test
+ * script -- has, and an operation the panel can do the CLI must do too.
+ */
+export async function buildSupportBundle(
+  dir: string,
+  audit: AuditLog,
+  engineVersion: string,
+): Promise<SupportBundle> {
     const secrets = loadSecrets(dir)
     const state = loadState(dir)
 
@@ -90,6 +104,16 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
       logs[service.id] = redactLines(result.stdout.slice(-100_000))
     }
 
+    // The structured application errors, thirty days deep, from the volume
+    // stdout's 300 lines cannot reach. Redacted line by line like the rest.
+    let applicationErrors = ''
+    try {
+      const result = await docker.readApplicationErrors()
+      applicationErrors = redactLines(result.stdout.slice(-2_000_000))
+    } catch (error) {
+      applicationErrors = `(could not read the logs volume: ${(error as Error).message})`
+    }
+
     let composeFile = ''
     try {
       composeFile = redactLines(readFileSync(docker.composeFilePath(dir), 'utf8'))
@@ -99,7 +123,7 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
 
     const bundle = {
       generatedAt: new Date().toISOString(),
-      engineVersion: ctx.engineVersion,
+      engineVersion,
       state: deepRedact({
         version: state.version,
         previousVersion: state.previousVersion ?? null,
@@ -111,21 +135,26 @@ export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
       }),
       services,
       logs,
+      applicationErrors,
       composeFile,
       preflight: await runPreflight(dir),
       backups: listBackups(dir),
-      audit: ctx.audit.recent(200),
+      audit: audit.recent(200),
     }
 
     const redacted = scrubValues(JSON.stringify(bundle, null, 2), secrets)
-    const gzipped = gzipSync(Buffer.from(redacted))
+    return {
+      filename: `qanoontech-support-${bundle.generatedAt.slice(0, 10)}.json.gz`,
+      gzipped: gzipSync(Buffer.from(redacted)),
+    }
+}
 
+export function supportRoutes(app: FastifyInstance, ctx: ServerContext): void {
+  app.get('/api/support-bundle', async (_request, reply) => {
+    const { filename, gzipped } = await buildSupportBundle(ctx.dir, ctx.audit, ctx.engineVersion)
     return reply
       .header('content-type', 'application/gzip')
-      .header(
-        'content-disposition',
-        `attachment; filename="qanoontech-support-${bundle.generatedAt.slice(0, 10)}.json.gz"`,
-      )
+      .header('content-disposition', `attachment; filename="${filename}"`)
       .send(gzipped)
   })
 }

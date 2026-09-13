@@ -286,7 +286,7 @@ export const S = {
   cancel: 'Cancel',
   supportTitle: 'Support bundle',
   supportExplainer:
-    'A redacted snapshot of this deployment — states, logs, configuration — for sending to support. No documents, no database rows, no secrets. Nothing is sent anywhere; you download it and decide.',
+    'A redacted snapshot of this deployment — service states, recent logs, the application’s error log for the last week, configuration — for sending to support. No documents, no database rows, no secrets, no sign-in records. Nothing is sent anywhere; you download it and decide.',
   supportDownload: 'Download support bundle',
 
   // Settings
