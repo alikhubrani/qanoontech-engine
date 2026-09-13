@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { S } from '../strings'
-import { StatusBadge } from '@/components/status'
+import { Pill } from '@/components/ui/pill'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -252,7 +252,7 @@ function SecretField({
       <div className="flex items-center gap-2">
         <span className="font-medium">{secret.title}</span>
         {secret.optional && <span className="text-xs text-muted-foreground">{S.secretOptional}</span>}
-        {secret.set && <StatusBadge tone="ok">{S.secretSet}</StatusBadge>}
+        {secret.set && <Pill tone="success" size="sm" dot>{S.secretSet}</Pill>}
       </div>
       {secret.kind === 'json' ? (
         <div className="space-y-1.5">

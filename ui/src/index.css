@@ -1,43 +1,106 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/newsreader';
 
 @custom-variant dark (&:is(.dark *));
 
 /*
- * The shadcn variable set, with the application's design tokens
- * (docs/design-system.md in the qanoontech-app repository) mapped onto it so
- * the panel reads as the same product: primary is QanoonTech blue, the accent
- * is the gold, neutrals are the slate ramp the app already uses.
+ * The application's design tokens, on the shadcn variable names.
+ *
+ * One palette: an ivory ground, an ink foreground and a warm grey scale
+ * between them, with colour reserved for state. There is no brand hue -- the
+ * ink button and the serif title are the emphasis. The values are the ones in
+ * styles/globals.css of the qanoontech-app repository (docs/design-system.md
+ * there explains each step); the panel carries them so the product is one
+ * product. If the two disagree, the application is right and this needs
+ * fixing.
+ *
+ * The scale, ivory to ink:
+ *   50 #fafaf9  100 #f2f1f0  200 #e5e5e3  300 #cccac6  400 #adaba5
+ *  500 #8f8b85  600 #706d66  700 #524f49  800 #33312c  900 #1f1d1a  950 #0f0e0d
  */
 :root {
   --radius: 0.5rem;
-  --background: #f8fafc;
-  --foreground: #1e293b;
-  --card: #ffffff;
-  --card-foreground: #1e293b;
-  --popover: #ffffff;
-  --popover-foreground: #1e293b;
-  --primary: #1e40af;
-  --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #334155;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --accent: #f1f5f9;
-  --accent-foreground: #1e293b;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --border: #e2e8f0;
-  --input: #cbd5e1;
-  --ring: #1e40af;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #334155;
-  --sidebar-primary: #1e40af;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eff6ff;
-  --sidebar-accent-foreground: #1e40af;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #1e40af;
+
+  --background: hsl(60 9% 98%);
+  --foreground: hsl(30 7% 5%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(30 7% 5%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(30 7% 5%);
+  --primary: hsl(30 7% 5%);
+  --primary-foreground: hsl(60 9% 98%);
+  --secondary: hsl(30 7% 95%);
+  --secondary-foreground: hsl(43 7% 19%);
+  --muted: hsl(30 7% 95%);
+  --muted-foreground: hsl(42 5% 42%);
+  --accent: hsl(40 6% 92%);
+  --accent-foreground: hsl(30 7% 5%);
+  --border: hsl(60 4% 89%);
+  --input: hsl(40 6% 79%);
+  --ring: hsl(36 4% 54%);
+
+  /* State: text colours dark enough to read at 12px; the pill behind is the same at /10. */
+  --destructive: hsl(0 60% 45%);
+  --destructive-foreground: hsl(60 9% 98%);
+  --success: hsl(142 64% 28%);
+  --warning: hsl(36 77% 31%);
+  --info: hsl(218 58% 44%);
+  --bronze: hsl(6 21% 29%);
+
+  /* The one dark surface besides the sidebar: where logs are read. */
+  --ink: hsl(30 7% 7%);
+  --ink-foreground: hsl(40 6% 85%);
+
+  /* The sidebar is the dark plate the ivory page sits beside. */
+  --sidebar: hsl(40 6% 10%);
+  --sidebar-foreground: hsl(40 6% 79%);
+  --sidebar-muted: hsl(36 4% 54%);
+  --sidebar-primary: hsl(60 9% 98%);
+  --sidebar-primary-foreground: hsl(30 7% 5%);
+  --sidebar-accent: hsl(43 7% 19%);
+  --sidebar-accent-foreground: hsl(60 9% 98%);
+  --sidebar-border: hsl(43 7% 16%);
+  --sidebar-ring: hsl(36 4% 54%);
+}
+
+/* The same scale read from the other end. Every token, not a partial block. */
+.dark {
+  --background: hsl(30 7% 7%);
+  --foreground: hsl(40 6% 92%);
+  --card: hsl(40 6% 10%);
+  --card-foreground: hsl(40 6% 92%);
+  --popover: hsl(40 6% 10%);
+  --popover-foreground: hsl(40 6% 92%);
+  --primary: hsl(60 9% 98%);
+  --primary-foreground: hsl(30 7% 5%);
+  --secondary: hsl(43 7% 15%);
+  --secondary-foreground: hsl(40 6% 85%);
+  --muted: hsl(43 7% 13%);
+  --muted-foreground: hsl(36 4% 60%);
+  --accent: hsl(43 7% 17%);
+  --accent-foreground: hsl(40 6% 92%);
+  --border: hsl(43 7% 17%);
+  --input: hsl(43 7% 24%);
+  --ring: hsl(36 4% 54%);
+  --destructive: hsl(0 60% 62%);
+  --destructive-foreground: hsl(30 7% 5%);
+  --success: hsl(142 50% 55%);
+  --warning: hsl(36 70% 58%);
+  --info: hsl(218 60% 66%);
+  --bronze: hsl(6 30% 62%);
+  --ink: hsl(30 7% 4%);
+  --ink-foreground: hsl(40 6% 85%);
+  --sidebar: hsl(30 7% 5%);
+  --sidebar-foreground: hsl(40 6% 79%);
+  --sidebar-muted: hsl(36 4% 54%);
+  --sidebar-primary: hsl(60 9% 98%);
+  --sidebar-primary-foreground: hsl(30 7% 5%);
+  --sidebar-accent: hsl(43 7% 16%);
+  --sidebar-accent-foreground: hsl(60 9% 98%);
+  --sidebar-border: hsl(43 7% 13%);
+  --sidebar-ring: hsl(36 4% 54%);
 }
 
 @theme inline {
@@ -45,6 +108,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -61,11 +125,18 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-bronze: var(--bronze);
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -73,37 +144,65 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Semantic status colours from the application's palette. */
-  --color-ok: #059669;
-  --color-warn: #d97706;
-  --color-bad: #dc2626;
-  --color-brand: #1e40af;
-  --color-brand-dark: #1e293b;
-  --color-accent-gold: #d97706;
-
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  /* Geist for the interface, Newsreader for titles and figures; both self-hosted. */
+  --font-sans: 'Geist Variable', 'Geist', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Reserve the scrollbar's column so a page that shrinks does not shift sideways. */
+    scrollbar-gutter: stable;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-sm antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  /* Digits line up in columns everywhere they are compared. */
+  table,
+  time,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    @apply bg-foreground text-background;
   }
 }
 
 /*
- ---break---
+ * The eyebrow: the small tracked label over a fact or a section. Tracking is
+ * allowed here where the application forbids it, because the engine is
+ * English-only and tracking is what breaks connected Arabic script.
  */
+@utility eyebrow {
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
 
-.dark {
-  --sidebar: hsl(240 5.9% 10%);
-  --sidebar-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-primary: hsl(224.3 76.3% 48%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 3.7% 15.9%);
-  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-border: hsl(240 3.7% 15.9%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+/* A page title. The serif is rationed to these and to figures. */
+@utility type-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+/* A figure: the number or verdict that leads a fact. */
+@utility type-figure {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }

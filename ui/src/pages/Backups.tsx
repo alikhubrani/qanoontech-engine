@@ -2,53 +2,34 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { api, ApiError, type BackupSet, type OffsiteConfig, type RemoteSet, type RestoreResult } from '../api'
 import { S } from '../strings'
-import { ErrorNote, StatusBadge } from '@/components/status'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { useOverview } from '../overview-context'
+import { ago, bytes, exact, when } from '@/lib/time'
+import { backupLevelTone } from '@/lib/tones'
+import { Empty, Fact, FactsRow, Note, Page, PageHeader, Row, Rows, Section } from '@/components/page'
+import { Pill } from '@/components/ui/pill'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { RowMenu } from '@/components/row-menu'
+import { Confirm } from '@/components/confirm'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-type PendingAction = { kind: 'restore' | 'delete'; id: string } | null
+type Pending = { kind: 'restore' | 'delete'; set: BackupSet } | null
 
-export function Backups({ onChanged }: { onChanged: () => void }) {
-  const [backups, setBackups] = useState<BackupSet[]>([])
+export function Backups() {
+  const { data, refresh } = useOverview()
+  const a = data.assessment
+  const [backups, setBackups] = useState<BackupSet[] | null>(null)
+  const [offsite, setOffsite] = useState<OffsiteConfig | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [restore, setRestore] = useState<RestoreResult | null>(null)
-  const [pending, setPending] = useState<PendingAction>(null)
-  const [offsite, setOffsite] = useState<OffsiteConfig | null>(null)
+  const [pending, setPending] = useState<Pending>(null)
 
   const load = useCallback(() => {
     void api
       .get<{ backups: BackupSet[]; offsiteConfig: OffsiteConfig }>('/api/backups')
-      .then((data) => {
-        setBackups(data.backups)
-        setOffsite(data.offsiteConfig)
+      .then((result) => {
+        setBackups(result.backups)
+        setOffsite(result.offsiteConfig)
       })
       .catch(() => undefined)
   }, [])
@@ -60,7 +41,7 @@ export function Backups({ onChanged }: { onChanged: () => void }) {
     try {
       await work()
       load()
-      onChanged()
+      void refresh()
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : S.errorGeneric)
     } finally {
@@ -73,26 +54,20 @@ export function Backups({ onChanged }: { onChanged: () => void }) {
     setPending(null)
     if (!action) return
     if (action.kind === 'restore') {
-      void act(async () => {
-        const result = await api.post<RestoreResult>(`/api/backups/${action.id}/restore`)
-        setRestore(result)
-      })
+      void act(async () => setRestore(await api.post<RestoreResult>(`/api/backups/${action.set.id}/restore`)))
     } else {
-      void act(async () => void (await api.delete(`/api/backups/${action.id}`)))
+      void act(async () => void (await api.delete(`/api/backups/${action.set.id}`)))
     }
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4">
-      {error && <ErrorNote>{error}</ErrorNote>}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{S.backupsTitle}</CardTitle>
-          <CardDescription>{S.backupsExplainer}</CardDescription>
-        </CardHeader>
-        <CardContent>
+    <Page>
+      <PageHeader
+        title={S.navBackups}
+        description={S.backupsPageExplainer}
+        actions={
           <Button
+            size="sm"
             disabled={busy}
             onClick={() =>
               void act(async () => {
@@ -103,147 +78,139 @@ export function Backups({ onChanged }: { onChanged: () => void }) {
           >
             {busy ? S.backupTaking : S.backupTakeNow}
           </Button>
-        </CardContent>
-      </Card>
+        }
+      />
+      {error && <Note tone="destructive">{error}</Note>}
 
-      <div className="rounded-lg border bg-card">
-        {backups.length === 0 ? (
-          <p className="p-6 text-sm text-muted-foreground">{S.backupEmpty}</p>
+      <FactsRow className="border-t-0 pt-0">
+        <Fact eyebrow={S.factBackups} value={a.backups.newestAt ? ago(a.backups.newestAt) : S.never} caption={a.backups.detail} tone={backupLevelTone(a.backups.level)} />
+        <Fact eyebrow={S.nextDue} value={a.backups.nextDueAt ? ago(a.backups.nextDueAt) : '—'} caption={S.everyInterval} />
+        <Fact
+          eyebrow={S.factOffsite}
+          figure={false}
+          value={a.offsite.enabled ? (a.offsite.ready ? (a.offsite.label ?? S.offsiteOn) : S.offsiteNotUsable) : S.offsiteOff}
+          caption={
+            !a.offsite.enabled ? S.factOffsiteOffCaption : !a.offsite.ready ? (a.offsite.reason ?? '') : a.backups.offsitePending ? S.factOffsitePending(a.backups.offsitePending) : S.factOffsiteCurrent
+          }
+          tone={!a.offsite.enabled || !a.offsite.ready ? 'destructive' : a.backups.offsitePending ? 'warning' : 'success'}
+        />
+        <Fact eyebrow={S.kept} value={String(a.backups.sets)} caption={S.keptCaption} />
+      </FactsRow>
+
+      <Section title={S.setsTitle}>
+        {backups === null ? null : backups.length === 0 ? (
+          <Empty>{S.backupEmpty}</Empty>
         ) : (
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>{S.backupColumnSet}</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="pl-0">{S.backupColumnSet}</TableHead>
                 <TableHead>{S.backupColumnKind}</TableHead>
                 <TableHead className="hidden md:table-cell">{S.backupColumnContents}</TableHead>
-                <TableHead className="text-right">{S.actionsColumn}</TableHead>
+                <TableHead>{S.factOffsite}</TableHead>
+                <TableHead className="w-10 pr-0" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {backups.map((set) => (
-                <TableRow key={set.id}>
-                  <TableCell>
-                    <span className="font-mono text-xs">{set.id}</span>
+                <TableRow key={set.id} className="hover:bg-transparent">
+                  <TableCell className="pl-0">
+                    <div className="font-medium" title={exact(set.takenAt)}>
+                      {when(set.takenAt)}
+                    </div>
+                    <div className="font-mono text-[11px] text-muted-foreground">{set.id}</div>
                   </TableCell>
                   <TableCell>
-                    <StatusBadge tone="muted">{S.backupTrigger[set.trigger] ?? set.trigger}</StatusBadge>
-                    <StatusBadge tone="muted" className="ml-1.5">
-                      v{set.appVersion}
-                    </StatusBadge>
-                    {offsite?.enabled &&
-                      (set.offsite.uploadedAt ? (
-                        <StatusBadge tone="ok" className="ml-1.5">
-                          {S.offsiteSent}
-                        </StatusBadge>
-                      ) : set.offsite.lastError ? (
-                        <StatusBadge tone="bad" className="ml-1.5" title={set.offsite.lastError}>
-                          {S.offsiteError}
-                        </StatusBadge>
-                      ) : (
-                        <StatusBadge tone="warn" className="ml-1.5">
-                          {S.offsitePending}
-                        </StatusBadge>
-                      ))}
+                    <span className="flex items-center gap-1.5">
+                      <Pill size="sm">{kindLabel(set)}</Pill>
+                      <span className="text-xs text-muted-foreground">v{set.appVersion}</span>
+                    </span>
                   </TableCell>
                   <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                    {formatBytes(set.databaseBytes)} database
-                    {set.includesUploads && ` · ${formatBytes(set.uploadsBytes)} documents`}
+                    {bytes(set.databaseBytes)} {S.databaseWord}
+                    {set.includesUploads && ` · ${bytes(set.uploadsBytes)} ${S.documentsWord}`}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => setPending({ kind: 'restore', id: set.id })}
-                      >
-                        {S.backupRestore}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-bad hover:text-bad"
-                        disabled={busy}
-                        onClick={() => setPending({ kind: 'delete', id: set.id })}
-                      >
-                        {S.backupDelete}
-                      </Button>
-                    </div>
+                  <TableCell>
+                    {offsite?.enabled ? (
+                      set.offsite.uploadedAt ? (
+                        <Pill tone="success" dot size="sm" title={exact(set.offsite.uploadedAt)}>
+                          {S.offsiteSent}
+                        </Pill>
+                      ) : set.offsite.lastError ? (
+                        <Pill tone="destructive" dot size="sm" title={set.offsite.lastError}>
+                          {S.offsiteError}
+                        </Pill>
+                      ) : (
+                        <Pill tone="warning" dot size="sm">
+                          {S.offsitePending}
+                        </Pill>
+                      )
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="pr-0 text-right">
+                    <RowMenu
+                      actions={[
+                        { label: S.backupRestore, onSelect: () => setPending({ kind: 'restore', set }), disabled: busy },
+                        ...(offsite?.ready && !set.offsite.uploadedAt
+                          ? [{ label: S.backupCopyOffsite, onSelect: () => void act(async () => void (await api.post(`/api/backups/${set.id}/offsite`))), disabled: busy }]
+                          : []),
+                        { label: S.backupDelete, danger: true, onSelect: () => setPending({ kind: 'delete', set }), disabled: busy },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-      </div>
+      </Section>
 
       {restore && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{S.restoreStepsTitle}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-1.5 text-sm">
-              {restore.steps.map((step) => (
-                <li key={step.step} className="flex items-baseline gap-2">
-                  <StatusBadge tone={step.ok ? 'ok' : 'bad'}>
-                    {step.ok ? 'done' : 'failed'}
-                  </StatusBadge>
-                  <span>{step.step}</span>
-                  {step.detail && <span className="text-muted-foreground">{step.detail}</span>}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        <Section title={S.restoreStepsTitle}>
+          <Rows>
+            {restore.steps.map((step) => (
+              <Row key={step.step}>
+                <Pill tone={step.ok ? 'success' : 'destructive'} dot size="sm" className="w-14 justify-center">
+                  {step.ok ? 'done' : 'failed'}
+                </Pill>
+                <span>{step.step}</span>
+                {step.detail && <span className="text-muted-foreground">{step.detail}</span>}
+              </Row>
+            ))}
+          </Rows>
+        </Section>
       )}
 
       <OffsiteSection offsite={offsite} busy={busy} onError={setError} onChanged={load} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{S.supportTitle}</CardTitle>
-          <CardDescription>{S.supportExplainer}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" asChild>
-            <a href="/api/support-bundle" download>
-              {S.supportDownload}
-            </a>
-          </Button>
-        </CardContent>
-      </Card>
+      <Section title={S.supportTitle} description={S.supportExplainer}>
+        <Button variant="outline" size="sm" asChild>
+          <a href="/api/support-bundle" download>
+            {S.supportDownload}
+          </a>
+        </Button>
+      </Section>
 
-      <AlertDialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pending?.kind === 'restore' ? S.backupRestoreDialogTitle : S.backupDeleteDialogTitle}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pending?.kind === 'restore'
-                ? S.backupRestoreConfirm(pending?.id ?? '')
-                : S.backupDeleteConfirm(pending?.id ?? '')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{S.cancel}</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmPending}>
-              {pending?.kind === 'restore' ? S.backupRestore : S.backupDelete}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      <Confirm
+        open={pending !== null}
+        title={pending?.kind === 'restore' ? S.backupRestoreDialogTitle : S.backupDeleteDialogTitle}
+        body={<p>{pending?.kind === 'restore' ? S.backupRestoreConfirm(pending.set.id) : S.backupDeleteConfirm(pending?.set.id ?? '')}</p>}
+        confirmLabel={pending?.kind === 'restore' ? S.backupRestore : S.backupDelete}
+        danger={pending?.kind === 'delete'}
+        onConfirm={confirmPending}
+        onClose={() => setPending(null)}
+      />
+    </Page>
   )
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+/** What a set is, in the words for it: hourly is the database alone, daily carries documents. */
+function kindLabel(set: BackupSet): string {
+  if (set.trigger === 'scheduled') return set.includesUploads ? S.backupTrigger['daily']! : S.backupTrigger['hourly']!
+  return S.backupTrigger[set.trigger] ?? set.trigger
 }
-
 
 function OffsiteSection({
   offsite,
@@ -256,33 +223,11 @@ function OffsiteSection({
   onError: (message: string | null) => void
   onChanged: () => void
 }) {
-  const [enabled, setEnabled] = useState(false)
-  const [driveId, setDriveId] = useState('')
   const [remote, setRemote] = useState<RemoteSet[] | null>(null)
   const [remoteDetail, setRemoteDetail] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
 
-  useEffect(() => {
-    if (offsite) {
-      setEnabled(offsite.enabled)
-      setDriveId(offsite.driveId)
-    }
-  }, [offsite])
-
-  async function save() {
-    setWorking(true)
-    onError(null)
-    try {
-      await api.put('/api/settings', { backupOffsiteEnabled: enabled, backupOffsiteDriveId: driveId })
-      onChanged()
-    } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  async function lookInDrive() {
+  async function look() {
     setWorking(true)
     try {
       const data = await api.get<{ sets: RemoteSet[]; detail?: string }>('/api/backups/offsite')
@@ -299,7 +244,7 @@ function OffsiteSection({
     try {
       await api.post('/api/backups/offsite/fetch', { name })
       onChanged()
-      await lookInDrive()
+      await look()
     } catch (caught) {
       onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
     } finally {
@@ -308,69 +253,47 @@ function OffsiteSection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.offsiteTitle}</CardTitle>
-        <CardDescription>{S.offsiteExplainer}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex items-center gap-2 pb-2 text-sm">
-            <Checkbox checked={enabled} onCheckedChange={(next) => setEnabled(next === true)} />
-            {S.offsiteEnable}
-          </label>
-          <div className="min-w-56 space-y-1.5">
-            <Label htmlFor="offsite-drive">{S.offsiteDriveId}</Label>
-            <Input
-              id="offsite-drive"
-              value={driveId}
-              onChange={(event) => setDriveId(event.target.value)}
-              placeholder="0A…"
-            />
-          </div>
-          <Button size="sm" disabled={working || busy} onClick={save}>
-            {working ? S.workingEllipsis : S.offsiteSave}
+    <Section
+      title={S.offsiteTitle}
+      description={S.offsiteExplainer}
+      actions={
+        offsite?.ready ? (
+          <Button variant="outline" size="sm" disabled={working} onClick={look}>
+            {working ? S.workingEllipsis : S.offsiteRemoteLoad}
           </Button>
-        </div>
-        {offsite?.reason && <ErrorNote>{offsite.reason}</ErrorNote>}
-
-        {offsite?.ready && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">{S.offsiteRemoteTitle}</span>
-              <Button variant="outline" size="sm" disabled={working} onClick={lookInDrive}>
-                {working ? S.workingEllipsis : S.offsiteRemoteLoad}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">{S.offsiteRemoteExplainer}</p>
-            {remoteDetail && <ErrorNote>{remoteDetail}</ErrorNote>}
-            {remote && remote.length > 0 && (
-              <ul className="space-y-1.5 text-sm">
-                {remote.map((set) => (
-                  <li key={set.name} className="flex items-center gap-3">
-                    <span className="font-mono text-xs">{set.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {set.files} files · {(set.bytes / 1024 ** 2).toFixed(1)} MB
-                    </span>
+        ) : undefined
+      }
+    >
+      {offsite && !offsite.ready && <Note tone={offsite.enabled ? 'destructive' : 'neutral'}>{offsite.reason ?? S.offsiteNotConfigured}</Note>}
+      {remoteDetail && <Note tone="destructive">{remoteDetail}</Note>}
+      {remote && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">{S.offsiteRemoteExplainer}</p>
+          {remote.length === 0 ? (
+            <Empty>{S.backupEmpty}</Empty>
+          ) : (
+            <Rows>
+              {remote.map((set) => (
+                <Row key={set.name}>
+                  <span className="font-mono text-xs">{set.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {set.files} files · {bytes(set.bytes)}
+                  </span>
+                  <span className="ml-auto">
                     {set.local ? (
-                      <StatusBadge tone="muted">{S.offsiteLocalToo}</StatusBadge>
+                      <Pill size="sm">{S.offsiteLocalToo}</Pill>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={working || busy}
-                        onClick={() => bringBack(set.name)}
-                      >
+                      <Button variant="outline" size="xs" disabled={working || busy} onClick={() => bringBack(set.name)}>
                         {S.offsiteBringBack}
                       </Button>
                     )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                  </span>
+                </Row>
+              ))}
+            </Rows>
+          )}
+        </div>
+      )}
+    </Section>
   )
 }

@@ -1,135 +1,165 @@
-import { auditEventLabels, S } from '../strings'
-import type { Overview as OverviewData } from '../api'
-import { ErrorNote, StatusBadge } from '@/components/status'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
+import { useOverview } from '../overview-context'
+import { S } from '../strings'
+import { areaRoutes } from '../routes'
+import { ago, exact, when } from '@/lib/time'
+import { auditKindTone, backupLevelTone, findingTone, verdictTone } from '@/lib/tones'
+import { Empty, Fact, FactsRow, Page, PageHeader, Row, Rows, Section } from '@/components/page'
+import { Dot, Pill } from '@/components/ui/pill'
+import { cn } from '@/lib/utils'
 
-export function Overview({ data }: { data: OverviewData }) {
-  const unhealthy = data.services.filter(
-    (service) => service.state === 'running' && service.health === 'unhealthy',
-  )
-  const down = data.services.filter(
-    (service) => service.state !== 'running' && service.state !== 'absent',
-  )
+/**
+ * The page the operator leaves open. It opens with a verdict and the four
+ * things they are responsible for, then what needs attention, then what has
+ * happened -- the notable events, not the routine ones. Everything on it is
+ * computed by the engine at request time; nothing here is a stored conclusion.
+ */
+export function Overview() {
+  const { data, checkedAt } = useOverview()
+  const a = data.assessment
+  const now = useNow()
+
+  const verdictWord =
+    a.verdict === 'protected' ? S.verdictProtected : a.verdict === 'attention' ? S.verdictAttention : S.verdictRisk
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Stat label={S.versionLabel} value={data.version} />
-        <Stat label={S.engineVersionLabel} value={data.engineVersion} />
-        <Stat label={S.addressLabel} value={`${data.bindAddress}:${data.appPort}`} />
+    <Page>
+      <PageHeader
+        title={S.navOverview}
+        description={S.overviewChecked(ago(new Date(checkedAt).toISOString(), now), data.bindAddress, data.appPort)}
+      />
+
+      <div className="space-y-6">
+        <div className="flex items-baseline gap-3">
+          <Dot tone={verdictTone(a.verdict)} className="size-2.5 translate-y-[-1px]" />
+          <h2 className="font-serif text-[34px] leading-none font-[450] tracking-[-0.01em]">{verdictWord}</h2>
+          <span className="text-sm text-muted-foreground">
+            {a.findings.length === 0
+              ? S.verdictNothing
+              : S.verdictCount(a.findings.filter((f) => f.level === 'risk').length, a.findings.filter((f) => f.level === 'warn').length)}
+          </span>
+        </div>
+
+        <FactsRow>
+          <Fact
+            eyebrow={S.factApplication}
+            value={a.application.running ?? S.notRunning}
+            caption={
+              a.application.drift
+                ? S.factDrift(a.application.configured)
+                : data.services.some((s) => s.required && s.state !== 'running' && s.state !== 'external')
+                  ? S.factServicesDown
+                  : S.factServicesOk(data.services.filter((s) => s.state === 'running' || s.state === 'external').length)
+            }
+            tone={a.findings.some((f) => f.area === 'services' || f.area === 'deploy' || f.area === 'database') ? 'warning' : 'success'}
+            to="/services"
+          />
+          <Fact
+            eyebrow={S.factBackups}
+            value={a.backups.newestAt ? ago(a.backups.newestAt, now) : S.never}
+            caption={
+              a.backups.level === 'ok'
+                ? S.factBackupsCaption(ago(a.backups.nextDueAt, now), a.backups.sets)
+                : a.backups.detail
+            }
+            tone={backupLevelTone(a.backups.level)}
+            to="/backups"
+          />
+          <Fact
+            eyebrow={S.factOffsite}
+            value={a.offsite.enabled ? (a.offsite.ready ? (a.offsite.label ?? S.offsiteOn) : S.offsiteNotUsable) : S.offsiteOff}
+            figure={false}
+            caption={
+              !a.offsite.enabled
+                ? S.factOffsiteOffCaption
+                : !a.offsite.ready
+                  ? (a.offsite.reason ?? '')
+                  : a.backups.offsitePending
+                    ? S.factOffsitePending(a.backups.offsitePending)
+                    : S.factOffsiteCurrent
+            }
+            tone={!a.offsite.enabled || !a.offsite.ready ? 'destructive' : a.backups.offsitePending ? 'warning' : 'success'}
+            to="/backups"
+          />
+          <Fact
+            eyebrow={S.factRecovery}
+            value={a.recovery.passphraseSet ? (a.recovery.lastCopiedAt ? ago(a.recovery.lastCopiedAt, now) : S.notYet) : S.noPassphrase}
+            figure={a.recovery.passphraseSet && Boolean(a.recovery.lastCopiedAt)}
+            caption={
+              a.recovery.passphraseSet
+                ? a.recovery.verifiedAt
+                  ? S.factRecoveryVerified(ago(a.recovery.verifiedAt, now))
+                  : S.factRecoveryCaption
+                : S.factRecoveryNoPassphrase
+            }
+            tone={a.recovery.passphraseSet ? (a.recovery.lastCopiedAt ? 'success' : 'warning') : 'warning'}
+            to="/backups"
+          />
+        </FactsRow>
       </div>
 
-      {data.dockerError && (
-        <ErrorNote>
-          {S.dockerUnreachable} {data.dockerError}
-        </ErrorNote>
+      {a.findings.length > 0 && (
+        <Section title={S.attentionTitle} description={S.attentionExplainer}>
+          <Rows>
+            {a.findings.map((finding, index) => (
+              <Row key={`${finding.area}-${index}`} to={areaRoutes[finding.area] ?? '/'}>
+                <Dot tone={findingTone(finding.level)} className="mt-0.5 self-start translate-y-[7px]" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{finding.title}</div>
+                  {finding.detail && <div className="text-xs text-muted-foreground">{finding.detail}</div>}
+                </div>
+              </Row>
+            ))}
+          </Rows>
+        </Section>
       )}
 
-      {!data.plan.deployable && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">{S.planProblemsTitle}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc space-y-1 pl-5 text-sm text-bad">
-              {data.plan.problems.map((problem) => (
-                <li key={problem}>{problem}</li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">{S.navServices}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {unhealthy.length === 0 && down.length === 0 && !data.dockerError ? (
-            <p className="text-sm text-ok">{S.servicesHealthy}</p>
-          ) : (
-            <ul className="space-y-1.5 text-sm">
-              {[...down, ...unhealthy].map((service) => (
-                <li key={service.id} className="flex items-center gap-2">
-                  <StatusBadge tone="bad">
-                    {service.state === 'running' ? service.health : service.state}
-                  </StatusBadge>
-                  <span>{service.title}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">{S.auditTitle}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.audit.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{S.auditEmpty}</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{S.auditWhat}</TableHead>
-                  <TableHead className="w-44 text-right">{S.auditWhen}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.audit.map((entry, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      {auditEventLabels[entry.event] ?? entry.event}
-                      {entry.detail && (
-                        <span className="text-muted-foreground"> — {entry.detail}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">
-                      {new Date(entry.at).toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+      <Section
+        title={S.activityTitle}
+        description={S.activityExplainer}
+        actions={
+          <Link to="/activity" className="text-xs font-medium text-muted-foreground hover:text-foreground">
+            {S.activityAll} →
+          </Link>
+        }
+      >
+        {data.audit.length === 0 ? (
+          <Empty>{S.auditEmpty}</Empty>
+        ) : (
+          <Rows>
+            {data.audit.map((entry, index) => (
+              <Row key={`${entry.at}-${index}`}>
+                <Pill tone={auditKindTone(entry.kind)} size="sm" className="w-16 justify-center">
+                  {S.auditKind[entry.kind]}
+                </Pill>
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm">{entry.label}</span>
+                  {entry.detail && <span className="text-sm text-muted-foreground"> — {entry.detail}</span>}
+                  {entry.subject && <span className="text-xs text-muted-foreground"> · {entry.subject}</span>}
+                </div>
+                <time
+                  dateTime={entry.at}
+                  title={exact(entry.at)}
+                  className={cn('shrink-0 text-xs text-muted-foreground')}
+                >
+                  {when(entry.at)}
+                </time>
+              </Row>
+            ))}
+          </Rows>
+        )}
+      </Section>
+    </Page>
   )
 }
 
-function Stat({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: 'ok' | 'warn' | 'bad'
-}) {
-  const valueColor =
-    tone === 'ok' ? 'text-ok' : tone === 'warn' ? 'text-warn' : tone === 'bad' ? 'text-bad' : 'text-brand-dark'
-  return (
-    <Card className="py-4">
-      <CardContent className="px-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`mt-1 truncate font-mono text-sm font-semibold ${valueColor}`} title={hint ?? value}>
-          {value}
-        </p>
-        {hint && <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  )
+/** A clock that ticks once a minute, so "12 min ago" stays true without a fetch. */
+function useNow(): number {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
+  return now
 }

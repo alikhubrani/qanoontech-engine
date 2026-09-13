@@ -1,45 +1,35 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { api, ApiError, type ServiceView } from '../api'
 import { S } from '../strings'
-import { ErrorNote, StatusBadge } from '@/components/status'
+import { useOverview } from '../overview-context'
+import { serviceStateLabel, serviceTone } from '@/lib/tones'
+import { Note, Page, PageHeader } from '@/components/page'
+import { Pill } from '@/components/ui/pill'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { RowMenu, type RowAction } from '@/components/row-menu'
+import { Confirm } from '@/components/confirm'
+import { LogsView } from '@/components/logs-view'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-export function Services({
-  services,
-  onChanged,
-}: {
-  services: ServiceView[]
-  onChanged: () => void
-}) {
+/** Stopping one of these takes the firm's system down; it asks first. */
+const FRONT_DOOR = new Set(['app', 'nginx'])
+
+export function Services() {
+  const { data, refresh } = useOverview()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [logsFor, setLogsFor] = useState<string | null>(null)
-  const [logs, setLogs] = useState('')
+  const [stopping, setStopping] = useState<ServiceView | null>(null)
+  const [logsFor, setLogsFor] = useState<ServiceView | null>(null)
 
-  async function act(id: string, action: 'start' | 'stop' | 'restart') {
-    setBusy(`${id}:${action}`)
+  async function act(service: ServiceView, action: 'start' | 'stop' | 'restart') {
+    setBusy(`${service.id}:${action}`)
     setError(null)
     try {
-      await api.post(`/api/services/${id}/${action}`)
-      toast.success(S.toastServiceDone(action, id))
-      onChanged()
+      await api.post(`/api/services/${service.id}/${action}`)
+      toast.success(S.toastServiceDone(S.serviceVerbDone[action], service.title))
+      await refresh()
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : S.errorGeneric)
     } finally {
@@ -47,112 +37,157 @@ export function Services({
     }
   }
 
-  async function showLogs(id: string) {
-    setLogsFor(id)
-    setLogs('')
-    try {
-      const data = await api.get<{ logs: string }>(`/api/services/${id}/logs?lines=300`)
-      setLogs(data.logs)
-    } catch (caught) {
-      setLogs(caught instanceof ApiError ? caught.message : S.errorGeneric)
+  function actionsFor(service: ServiceView): RowAction[] {
+    if (service.state === 'external') return []
+    const disabled = busy !== null
+    if (service.state === 'running') {
+      return [
+        { label: S.actionRestart, onSelect: () => void act(service, 'restart'), disabled },
+        {
+          label: S.actionStop,
+          danger: true,
+          disabled,
+          onSelect: () => (FRONT_DOOR.has(service.id) ? setStopping(service) : void act(service, 'stop')),
+        },
+      ]
     }
+    return [{ label: S.actionStart, onSelect: () => void act(service, 'start'), disabled: disabled || service.state === 'absent' }]
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
-      {error && <ErrorNote>{error}</ErrorNote>}
+    <Page>
+      <PageHeader title={S.navServices} description={S.servicesExplainer} />
+      {error && <Note tone="destructive">{error}</Note>}
+      {data.dockerError && (
+        <Note tone="destructive">
+          {S.dockerUnreachable} {data.dockerError}
+        </Note>
+      )}
 
-      <div className="rounded-lg border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{S.serviceColumn}</TableHead>
-              <TableHead>{S.stateColumn}</TableHead>
-              <TableHead className="hidden md:table-cell">{S.imageColumn}</TableHead>
-              <TableHead className="text-right">{S.actionsColumn}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {services.map((service) => (
-              <TableRow key={service.id}>
-                <TableCell>
-                  <div className="font-medium">{service.title}</div>
-                  <div className="text-xs text-muted-foreground">{service.summary}</div>
-                </TableCell>
-                <TableCell>
-                  <StateBadge service={service} />
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="pl-0">{S.serviceColumn}</TableHead>
+            <TableHead className="w-36">{S.stateColumn}</TableHead>
+            <TableHead className="hidden lg:table-cell">{S.detailColumn}</TableHead>
+            <TableHead className="w-28 pr-0 text-right">{S.actionsColumn}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.services.map((service) => (
+            <TableRow key={service.id} className="hover:bg-transparent">
+              <TableCell className="py-3 pl-0 align-top">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{service.title}</span>
                   {service.required && (
-                    <StatusBadge tone="muted" className="ml-1.5">
+                    <Pill size="sm" tone="neutral">
                       {S.requiredBadge}
-                    </StatusBadge>
+                    </Pill>
                   )}
-                </TableCell>
-                <TableCell className="hidden max-w-56 truncate font-mono text-xs text-muted-foreground md:table-cell">
-                  {service.image || '—'}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1.5">
-                    <Button variant="outline" size="sm" onClick={() => showLogs(service.id)}>
+                </div>
+                <div className="mt-0.5 max-w-[48ch] text-xs text-muted-foreground">{service.summary}</div>
+              </TableCell>
+              <TableCell className="py-3 align-top">
+                <Pill tone={serviceTone(service)} dot>
+                  {serviceStateLabel(service)}
+                </Pill>
+              </TableCell>
+              <TableCell className="hidden py-3 align-top text-xs text-muted-foreground lg:table-cell">
+                <ServiceDetail service={service} />
+              </TableCell>
+              <TableCell className="py-2.5 pr-0 text-right align-top">
+                <div className="flex items-center justify-end gap-1">
+                  {service.state !== 'external' && (
+                    <Button variant="ghost" size="sm" onClick={() => setLogsFor(service)}>
                       {S.actionLogs}
                     </Button>
-                    {service.state === 'running' ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={busy !== null}
-                          onClick={() => act(service.id, 'restart')}
-                        >
-                          {busy === `${service.id}:restart` ? S.workingEllipsis : S.actionRestart}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-bad hover:text-bad"
-                          disabled={busy !== null}
-                          onClick={() => act(service.id, 'stop')}
-                        >
-                          {busy === `${service.id}:stop` ? S.workingEllipsis : S.actionStop}
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        disabled={busy !== null || service.state === 'absent'}
-                        onClick={() => act(service.id, 'start')}
-                      >
-                        {busy === `${service.id}:start` ? S.workingEllipsis : S.actionStart}
-                      </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+                  )}
+                  {actionsFor(service).length > 0 && <RowMenu actions={actionsFor(service)} />}
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
 
-      <Sheet open={logsFor !== null} onOpenChange={(open) => !open && setLogsFor(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl">
-          <SheetHeader>
-            <SheetTitle>{logsFor ? S.logsTitle(logsFor) : ''}</SheetTitle>
-            <SheetDescription>{S.logsRecent}</SheetDescription>
-          </SheetHeader>
-          <ScrollArea className="h-[calc(100vh-8rem)] px-4">
-            <pre className="pb-6 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-              {logs || S.logsEmpty}
-            </pre>
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
-    </div>
+      <Confirm
+        open={stopping !== null}
+        title={S.stopDialogTitle(stopping?.title ?? '')}
+        body={<p>{S.stopDialogBody}</p>}
+        confirmLabel={S.actionStop}
+        danger
+        busy={busy !== null}
+        onConfirm={() => {
+          const target = stopping
+          setStopping(null)
+          if (target) void act(target, 'stop')
+        }}
+        onClose={() => setStopping(null)}
+      />
+
+      <LogsSheet service={logsFor} onClose={() => setLogsFor(null)} />
+    </Page>
   )
 }
 
-function StateBadge({ service }: { service: ServiceView }) {
-  if (service.state === 'absent') return <StatusBadge tone="muted">{S.stateAbsent}</StatusBadge>
-  if (service.state !== 'running') return <StatusBadge tone="bad">{service.state}</StatusBadge>
-  if (service.health === 'unhealthy') return <StatusBadge tone="bad">unhealthy</StatusBadge>
-  if (service.health === 'starting') return <StatusBadge tone="warn">starting</StatusBadge>
-  return <StatusBadge tone="ok">{service.health || 'running'}</StatusBadge>
+function ServiceDetail({ service }: { service: ServiceView }) {
+  if (service.external) {
+    return (
+      <span>
+        {service.external.reachable
+          ? `${service.external.server ?? 'PostgreSQL'} · ${service.external.host}:${service.external.port}`
+          : `${service.external.host}:${service.external.port} — ${service.external.detail}`}
+      </span>
+    )
+  }
+  const tag = service.image ? service.image.slice(service.image.lastIndexOf('/') + 1) : ''
+  return (
+    <span className="flex flex-col gap-0.5">
+      {tag && (
+        <span className="font-mono" title={service.image}>
+          {tag}
+        </span>
+      )}
+      {service.status && <span>{service.status}</span>}
+    </span>
+  )
+}
+
+function LogsSheet({ service, onClose }: { service: ServiceView | null; onClose: () => void }) {
+  const [lines, setLines] = useState(300)
+  const [follow, setFollow] = useState(false)
+  const [text, setText] = useState('')
+
+  const fetchLogs = useCallback(async () => {
+    if (!service) return
+    try {
+      const data = await api.get<{ logs: string }>(`/api/services/${service.id}/logs?lines=${lines}`)
+      setText(data.logs)
+    } catch (caught) {
+      setText(caught instanceof ApiError ? caught.message : S.errorGeneric)
+    }
+  }, [service, lines])
+
+  useEffect(() => {
+    setText('')
+    void fetchLogs()
+  }, [fetchLogs])
+
+  useEffect(() => {
+    if (!follow || !service) return
+    const timer = setInterval(() => void fetchLogs(), 3000)
+    return () => clearInterval(timer)
+  }, [follow, service, fetchLogs])
+
+  return (
+    <Sheet open={service !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="right" className="w-full gap-3 p-4 sm:max-w-3xl">
+        <SheetHeader className="p-0">
+          <SheetTitle>{service ? S.logsTitle(service.title) : ''}</SheetTitle>
+          <SheetDescription>{S.logsRecent(lines)}</SheetDescription>
+        </SheetHeader>
+        <LogsView text={text} lines={lines} onLines={setLines} follow={follow} onFollow={setFollow} />
+      </SheetContent>
+    </Sheet>
+  )
 }

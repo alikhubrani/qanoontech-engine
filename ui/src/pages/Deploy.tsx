@@ -2,32 +2,17 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import { api, ApiError, type DeployStatus, type ImageProgress, type PreflightCheck } from '../api'
 import { S } from '../strings'
-import { ErrorNote, StatusBadge } from '@/components/status'
-import {
-  SchemaForm,
-  SecretFields,
-  type ObjectSchema,
-  type SecretDeclaration,
-} from '@/components/module-form'
+import { useOverview } from '../overview-context'
+import { checkTone } from '@/lib/tones'
+import { Field, Note, Page, PageHeader, Row, Rows, Section } from '@/components/page'
+import { Pill } from '@/components/ui/pill'
+import { SchemaForm, SecretFields, type ObjectSchema, type SecretDeclaration } from '@/components/module-form'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Confirm } from '@/components/confirm'
+import { cn } from '@/lib/utils'
 
 interface ModuleRow {
   id: string
@@ -50,396 +35,47 @@ interface Settings {
 }
 
 /**
- * The whole install-and-update surface, as ordered sections rather than a
- * modal wizard: every section shows its state, works on a fresh box and on a
- * running one, and the order on the page is the order that makes sense to do
- * them in. A wizard that locks steps is wrong the day you need step 4 alone.
+ * The install-and-update surface as ordered sections: every section shows
+ * its state, works on a fresh box and on a running one, and the order on the
+ * page is the order that makes sense to do them in. A wizard that locks steps
+ * is wrong the day you need step 4 alone.
  */
-export function Deploy({
-  version,
-  previousVersion,
-  onChanged,
-}: {
-  version: string
-  previousVersion: string | null
-  onChanged: () => void
-}) {
+export function Deploy() {
+  const { data, refresh } = useOverview()
   const [error, setError] = useState<string | null>(null)
   const [deploying, setDeploying] = useState(false)
+  const onChanged = useCallback(() => void refresh(), [refresh])
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4">
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <RegistrySection onError={setError} />
-      <SettingsSection onError={setError} onChanged={onChanged} />
-      <ModulesSection onError={setError} onChanged={onChanged} />
+    <Page>
+      <PageHeader title={S.deployTitle} description={S.deployPageExplainer} />
+      {error && <Note tone="destructive">{error}</Note>}
       <VersionSection
-        version={version}
-        previousVersion={previousVersion}
+        running={data.runningVersion}
+        version={data.version}
+        previousVersion={data.previousVersion}
         deploying={deploying}
         onError={setError}
         onChanged={onChanged}
       />
       <PreflightSection />
-      <DeploySection version={version} onChanged={onChanged} onRunning={setDeploying} />
-    </div>
-  )
-}
-
-function RegistrySection({ onError }: { onError: (message: string | null) => void }) {
-  const [configuredAs, setConfiguredAs] = useState<string | null>(null)
-  const [username, setUsername] = useState('')
-  const [token, setToken] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  useEffect(() => {
-    void api
-      .get<{ configured: boolean; username: string | null }>('/api/registry')
-      .then((data) => setConfiguredAs(data.username))
-      .catch(() => undefined)
-  }, [])
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    onError(null)
-    try {
-      const result = await api.put<{ detail: string }>('/api/registry', { username, token })
-      setNotice(result.detail)
-      setConfiguredAs(username)
-      setToken('')
-    } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.registryTitle}</CardTitle>
-        <CardDescription>{S.registryExplainer}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={save} className="space-y-3">
-          {configuredAs && <p className="text-sm text-ok">{S.registryConfigured(configuredAs)}</p>}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="reg-user">{S.registryUsername}</Label>
-              <Input
-                id="reg-user"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="reg-token">{S.registryToken}</Label>
-              <Input
-                id="reg-token"
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                autoComplete="off"
-              />
-            </div>
-          </div>
-          {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
-          <Button type="submit" disabled={busy || !username || !token}>
-            {busy ? S.workingEllipsis : S.registrySave}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  )
-}
-
-function SettingsSection({
-  onError,
-  onChanged,
-}: {
-  onError: (message: string | null) => void
-  onChanged: () => void
-}) {
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    void api
-      .get<{ settings: Settings }>('/api/settings')
-      .then((data) => setSettings(data.settings))
-      .catch(() => undefined)
-  }, [])
-
-  if (!settings) return null
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    onError(null)
-    setSaved(false)
-    try {
-      await api.put('/api/settings', {
-        bindAddress: settings!.bindAddress,
-        appPort: Number(settings!.appPort),
-        timezone: settings!.timezone,
-        defaultLanguage: settings!.defaultLanguage,
-      })
-      setSaved(true)
-      toast.success(S.settingsSaved)
-      onChanged()
-    } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.settingsTitle}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={save} className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>{S.settingsBindAddress}</Label>
-              <Input
-                value={settings.bindAddress}
-                onChange={(event) => setSettings({ ...settings, bindAddress: event.target.value })}
-              />
-              <p className="text-xs text-muted-foreground">{S.settingsBindAddressHint}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>{S.settingsAppPort}</Label>
-              <Input
-                type="number"
-                value={settings.appPort}
-                onChange={(event) =>
-                  setSettings({ ...settings, appPort: Number(event.target.value) })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{S.settingsTimezone}</Label>
-              <Input
-                value={settings.timezone}
-                onChange={(event) => setSettings({ ...settings, timezone: event.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{S.settingsLanguage}</Label>
-              <Select
-                value={settings.defaultLanguage}
-                onValueChange={(next) =>
-                  setSettings({ ...settings, defaultLanguage: next as 'ar' | 'en' })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ar">العربية</SelectItem>
-                  <SelectItem value="en">English</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          {saved && <p className="text-sm text-ok">{S.settingsSaved}</p>}
-          <Button type="submit" disabled={busy}>
-            {busy ? S.workingEllipsis : S.settingsSave}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  )
-}
-
-function ModulesSection({
-  onError,
-  onChanged,
-}: {
-  onError: (message: string | null) => void
-  onChanged: () => void
-}) {
-  const [modules, setModules] = useState<ModuleRow[]>([])
-  const [open, setOpen] = useState<string | null>(null)
-  const [configDraft, setConfigDraft] = useState<Record<string, unknown>>({})
-  const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
-  const [memoryDraft, setMemoryDraft] = useState('')
-  const [cpusDraft, setCpusDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  const load = useCallback(() => {
-    void api
-      .get<{ modules: ModuleRow[] }>('/api/modules')
-      .then((data) => setModules(data.modules))
-      .catch(() => undefined)
-  }, [])
-  useEffect(load, [load])
-
-  async function toggle(module: ModuleRow) {
-    setBusy(true)
-    onError(null)
-    try {
-      await api.post(`/api/modules/${module.id}/${module.enabled ? 'disable' : 'enable'}`)
-      load()
-      onChanged()
-    } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function openConfig(module: ModuleRow) {
-    if (open === module.id) {
-      setOpen(null)
-      return
-    }
-    setOpen(module.id)
-    setSaved(false)
-    setConfigDraft((module.config as Record<string, unknown>) ?? {})
-    setSecretDraft({})
-    setMemoryDraft(module.resources.memory)
-    setCpusDraft(module.resources.cpus)
-  }
-
-  async function save(module: ModuleRow) {
-    setBusy(true)
-    onError(null)
-    setSaved(false)
-    try {
-      // Secrets first: a failed config save should not discard typed keys.
-      if (Object.keys(secretDraft).length > 0) {
-        await api.put(`/api/modules/${module.id}/secrets`, { values: secretDraft })
-        setSecretDraft({})
-      }
-      if (module.configSchema) {
-        await api.put(`/api/modules/${module.id}/config`, { config: configDraft })
-      }
-      if (memoryDraft !== module.resources.memory || cpusDraft !== module.resources.cpus) {
-        await api.put(`/api/modules/${module.id}/resources`, { memory: memoryDraft, cpus: cpusDraft })
-      }
-      setSaved(true)
-      toast.success(S.moduleConfigSaved)
-      load()
-      onChanged()
-    } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.modulesTitle}</CardTitle>
-        <CardDescription>{S.modulesExplainer}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ul className="space-y-2">
-          {modules
-            .filter((module) => !module.required)
-            .map((module) => (
-              <li key={module.id} className="rounded-lg border p-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{module.title}</span>
-                      <StatusBadge tone={module.enabled ? 'ok' : 'muted'}>
-                        {module.enabled ? 'on' : 'off'}
-                      </StatusBadge>
-                      <span className="text-xs text-muted-foreground">{module.cost.image}</span>
-                    </div>
-                    <p className="mt-0.5 text-sm text-muted-foreground">{module.summary}</p>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    {(module.configSchema || module.secrets.length > 0) && (
-                      <Button variant="outline" size="sm" onClick={() => openConfig(module)}>
-                        {S.moduleConfigure}
-                      </Button>
-                    )}
-                    <Button
-                      variant={module.enabled ? 'destructive' : 'default'}
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => toggle(module)}
-                    >
-                      {module.enabled ? S.moduleDisable : S.moduleEnable}
-                    </Button>
-                  </div>
-                </div>
-                {open === module.id && (
-                  <div className="mt-4 space-y-4">
-                    <Separator />
-                    {module.secrets.length > 0 && (
-                      <SecretFields
-                        secrets={module.secrets}
-                        values={secretDraft}
-                        onChange={setSecretDraft}
-                      />
-                    )}
-                    {module.configSchema && (
-                      <SchemaForm
-                        schema={module.configSchema}
-                        value={configDraft}
-                        onChange={setConfigDraft}
-                      />
-                    )}
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">{S.moduleResources}</p>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1 text-sm">
-                          <span className="text-muted-foreground">{S.moduleMemory}</span>
-                          <Input
-                            value={memoryDraft}
-                            onChange={(e) => setMemoryDraft(e.target.value)}
-                            placeholder={module.resources.defaultMemory}
-                          />
-                        </label>
-                        <label className="space-y-1 text-sm">
-                          <span className="text-muted-foreground">{S.moduleCpus}</span>
-                          <Input
-                            value={cpusDraft}
-                            onChange={(e) => setCpusDraft(e.target.value)}
-                            placeholder={module.resources.defaultCpus}
-                          />
-                        </label>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {S.moduleResourceHint(module.resources.defaultMemory, module.resources.defaultCpus)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Button size="sm" disabled={busy} onClick={() => save(module)}>
-                        {busy ? S.workingEllipsis : S.moduleConfigSave}
-                      </Button>
-                      {saved && <span className="text-sm text-ok">{S.moduleConfigSaved}</span>}
-                    </div>
-                  </div>
-                )}
-              </li>
-            ))}
-        </ul>
-      </CardContent>
-    </Card>
+      <DeploySection version={data.runningVersion ?? data.version} onChanged={onChanged} onRunning={setDeploying} />
+      <ModulesSection onError={setError} onChanged={onChanged} />
+      <SettingsSection onError={setError} onChanged={onChanged} />
+      <RegistrySection onError={setError} />
+    </Page>
   )
 }
 
 function VersionSection({
+  running,
   version,
   previousVersion,
   deploying,
   onError,
   onChanged,
 }: {
+  running: string | null
   version: string
   previousVersion: string | null
   deploying: boolean
@@ -450,6 +86,7 @@ function VersionSection({
   const [detail, setDetail] = useState<string | null>(null)
   const [chosen, setChosen] = useState('')
   const [busy, setBusy] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
 
   useEffect(() => {
     void api
@@ -466,6 +103,7 @@ function VersionSection({
     onError(null)
     try {
       await api.post(url, body)
+      setChosen('')
       onChanged()
     } catch (caught) {
       onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
@@ -474,61 +112,75 @@ function VersionSection({
     }
   }
 
+  const drift = running !== null && version !== 'latest' && running !== version
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.versionTitle}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p>
-          <span className="text-muted-foreground">{S.versionCurrent}: </span>
-          <span className="font-mono font-semibold">{version}</span>
-          {previousVersion && (
-            <span className="ml-4 text-muted-foreground">
-              {S.versionPrevious}: <span className="font-mono">{previousVersion}</span>
-            </span>
-          )}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {available.length > 0 ? (
-            <Select value={chosen} onValueChange={setChosen}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder={S.versionChoose} />
-              </SelectTrigger>
-              <SelectContent>
-                {available.map((tag) => (
-                  <SelectItem key={tag} value={tag}>
-                    {tag}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              className="w-44"
-              value={chosen}
-              onChange={(event) => setChosen(event.target.value)}
-              placeholder={S.versionChoose}
-            />
-          )}
-          <Button
-            disabled={busy || deploying || !chosen}
-            onClick={() => act('/api/version', { version: chosen })}
-          >
-            {S.versionSet}
-          </Button>
-          {previousVersion && (
-            <Button variant="outline" disabled={busy || deploying} onClick={() => act('/api/rollback')}>
-              {S.versionRollback}
-            </Button>
-          )}
-        </div>
-        {available.length === 0 && detail && (
-          <p className="text-xs text-muted-foreground">{detail}</p>
+    <Section title={S.versionTitle}>
+      <div className="grid grid-cols-3 gap-6 py-1">
+        <Mini eyebrow={S.versionRunning} value={running ?? S.notRunning} />
+        <Mini eyebrow={S.versionCurrent} value={version} note={drift ? S.versionNotDeployed : undefined} />
+        <Mini eyebrow={S.versionPrevious} value={previousVersion ?? '—'} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {available.length > 0 ? (
+          <Select value={chosen} onValueChange={setChosen}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder={S.versionChoose} />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((tag) => (
+                <SelectItem key={tag} value={tag}>
+                  {tag}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input className="w-44" value={chosen} onChange={(event) => setChosen(event.target.value)} placeholder={S.versionChoose} />
         )}
-        {previousVersion && <p className="text-xs text-muted-foreground">{S.versionRollbackWarn}</p>}
-      </CardContent>
-    </Card>
+        <Button disabled={busy || deploying || !chosen} onClick={() => act('/api/version', { version: chosen })}>
+          {S.versionSet}
+        </Button>
+        {previousVersion && (
+          <Button variant="outline" disabled={busy || deploying} onClick={() => setRollingBack(true)}>
+            {S.versionRollback}
+          </Button>
+        )}
+      </div>
+      {available.length === 0 && detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+      {previousVersion && <p className="max-w-[70ch] text-xs text-muted-foreground">{S.versionRollbackWarn}</p>}
+      <Confirm
+        open={rollingBack}
+        title={S.versionRollback}
+        body={
+          <>
+            <p>
+              {S.versionCurrent}: {version} → {previousVersion}. {S.rollbackBody}
+            </p>
+            <p>{S.versionRollbackWarn}</p>
+          </>
+        }
+        confirmLabel={S.versionRollback}
+        busy={busy}
+        onConfirm={() => {
+          setRollingBack(false)
+          void act('/api/rollback')
+        }}
+        onClose={() => setRollingBack(false)}
+      />
+    </Section>
+  )
+}
+
+function Mini({ eyebrow, value, note }: { eyebrow: string; value: string; note?: string | undefined }) {
+  return (
+    <div className="min-w-0">
+      <div className="eyebrow">{eyebrow}</div>
+      <div className="mt-1.5 flex items-baseline gap-2">
+        <span className="font-mono text-base font-medium">{value}</span>
+        {note && <span className="text-xs text-warning">{note}</span>}
+      </div>
+    </div>
   )
 }
 
@@ -549,32 +201,32 @@ function PreflightSection() {
   const blocked = checks?.some((check) => check.status === 'fail') ?? false
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.preflightTitle}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Button variant="outline" disabled={busy} onClick={run}>
+    <Section
+      title={S.preflightTitle}
+      description={S.preflightExplainer}
+      actions={
+        <Button variant="outline" size="sm" disabled={busy} onClick={run}>
           {busy ? S.workingEllipsis : S.preflightRun}
         </Button>
-        {checks && (
-          <ul className="space-y-1.5 text-sm">
-            {checks.map((check) => (
-              <li key={check.id} className="flex items-baseline gap-2">
-                <StatusBadge
-                  tone={check.status === 'pass' ? 'ok' : check.status === 'warn' ? 'warn' : 'bad'}
-                >
-                  {check.status}
-                </StatusBadge>
-                <span className="font-medium">{check.title}</span>
-                <span className="text-muted-foreground">{check.detail}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {blocked && <ErrorNote>{S.preflightBlocked}</ErrorNote>}
-      </CardContent>
-    </Card>
+      }
+    >
+      {checks && (
+        <Rows>
+          {checks.map((check) => (
+            <Row key={check.id}>
+              <Pill tone={checkTone(check.status)} dot className="w-16 justify-center">
+                {check.status}
+              </Pill>
+              <span className="font-medium">{check.title}</span>
+              <span className="min-w-0 truncate text-muted-foreground" title={check.detail}>
+                {check.detail}
+              </span>
+            </Row>
+          ))}
+        </Rows>
+      )}
+      {blocked && <Note tone="destructive">{S.preflightBlocked}</Note>}
+    </Section>
   )
 }
 
@@ -589,6 +241,7 @@ function DeploySection({
 }) {
   const [status, setStatus] = useState<DeployStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
 
   const poll = useCallback(async () => {
@@ -614,14 +267,13 @@ function DeploySection({
     return () => clearInterval(timer)
   }, [status?.running, poll, onChanged])
 
-  // Follow the log while it grows — the operator is watching a deploy, and
-  // the interesting line is always the newest one.
+  // Follow the log while it grows — the interesting line is always the newest one.
   useEffect(() => {
-    const viewport = logRef.current?.querySelector('[data-slot="scroll-area-viewport"]')
-    if (viewport && status?.running) viewport.scrollTop = viewport.scrollHeight
+    if (logRef.current && status?.running) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [status?.log, status?.running])
 
   async function start() {
+    setConfirming(false)
     setError(null)
     try {
       await api.post('/api/deploy')
@@ -632,48 +284,365 @@ function DeploySection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{S.deployRunTitle}</CardTitle>
-        <CardDescription>{S.deployExplainer}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {error && <ErrorNote>{error}</ErrorNote>}
-        <div className="flex items-center gap-3">
-          <Button disabled={status?.running ?? false} onClick={start}>
-            {status?.running ? S.deployRunning : S.deployStart}
-          </Button>
-          {status?.running && status.targetVersion && version && (
-            <span className="text-sm text-muted-foreground">
-              {S.deployRunningVersion(version, status.targetVersion)}
-            </span>
-          )}
-          {status && !status.running && status.ok === true && (
-            <span className="text-sm text-ok">{S.deployDone}</span>
-          )}
-          {status && !status.running && status.ok === false && (
-            <span className="text-sm text-bad">{S.deployFailed}</span>
-          )}
+    <Section
+      title={S.deployRunTitle}
+      description={S.deployExplainer}
+      actions={
+        <Button size="sm" disabled={status?.running ?? false} onClick={() => setConfirming(true)}>
+          {status?.running ? S.deployRunning : S.deployStart}
+        </Button>
+      }
+    >
+      {error && <Note tone="destructive">{error}</Note>}
+      {status?.running && status.targetVersion && (
+        <p className="text-sm text-muted-foreground">{S.deployRunningVersion(version, status.targetVersion)}</p>
+      )}
+      {status && !status.running && status.ok === true && <Note tone="success">{S.deployDone}</Note>}
+      {status && !status.running && status.ok === false && <Note tone="destructive">{S.deployFailed}</Note>}
+
+      {status?.step === 'pull' && status.images && status.images.length > 0 && (
+        <div className="space-y-2">
+          {status.images.map((img) => (
+            <ImageRow key={img.image} img={img} />
+          ))}
         </div>
+      )}
 
-        {status?.step === 'pull' && status.images && status.images.length > 0 && (
-          <div className="space-y-2">
-            {status.images.map((img) => (
-              <ImageRow key={img.image} img={img} />
-            ))}
-          </div>
-        )}
+      {status?.log && (
+        <div ref={logRef} className="h-64 overflow-auto rounded-lg bg-ink px-4 py-3 text-ink-foreground">
+          <pre className="font-mono text-[12px] leading-[1.6] whitespace-pre-wrap">{status.log}</pre>
+        </div>
+      )}
 
-        {status?.log && (
-          <ScrollArea ref={logRef} className="h-64 rounded-lg bg-brand-dark p-4">
-            <pre className="font-mono text-xs leading-relaxed text-slate-100">{status.log}</pre>
-          </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
+      <Confirm
+        open={confirming}
+        title={S.deployStart}
+        body={<p>{S.deployConfirmBody}</p>}
+        confirmLabel={S.deployStart}
+        onConfirm={() => void start()}
+        onClose={() => setConfirming(false)}
+      />
+    </Section>
   )
 }
 
+function ModulesSection({
+  onError,
+  onChanged,
+}: {
+  onError: (message: string | null) => void
+  onChanged: () => void
+}) {
+  const [modules, setModules] = useState<ModuleRow[]>([])
+  const [open, setOpen] = useState<ModuleRow | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(() => {
+    void api
+      .get<{ modules: ModuleRow[] }>('/api/modules')
+      .then((data) => setModules(data.modules))
+      .catch(() => undefined)
+  }, [])
+  useEffect(load, [load])
+
+  async function toggle(module: ModuleRow) {
+    setBusy(true)
+    onError(null)
+    try {
+      await api.post(`/api/modules/${module.id}/${module.enabled ? 'disable' : 'enable'}`)
+      load()
+      onChanged()
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section title={S.modulesTitle} description={S.modulesExplainer}>
+      <Rows>
+        {modules
+          .filter((module) => !module.required)
+          .map((module) => (
+            <Row key={module.id} className="py-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{module.title}</span>
+                  <Pill tone={module.enabled ? 'success' : 'neutral'} dot={module.enabled} size="sm">
+                    {module.enabled ? S.moduleOn : S.moduleOff}
+                  </Pill>
+                  <span className="text-xs text-muted-foreground">{module.cost.memory}</span>
+                </div>
+                <p className="mt-0.5 max-w-[60ch] text-xs text-muted-foreground">{module.summary}</p>
+              </div>
+              <div className="flex shrink-0 gap-1.5">
+                {(module.configSchema || module.secrets.length > 0) && (
+                  <Button variant="outline" size="sm" onClick={() => setOpen(module)}>
+                    {S.moduleConfigure}
+                  </Button>
+                )}
+                <Button variant={module.enabled ? 'outline' : 'default'} size="sm" disabled={busy} onClick={() => toggle(module)}>
+                  {module.enabled ? S.moduleDisable : S.moduleEnable}
+                </Button>
+              </div>
+            </Row>
+          ))}
+      </Rows>
+      <ModuleSheet
+        module={open}
+        onClose={() => setOpen(null)}
+        onSaved={() => {
+          load()
+          onChanged()
+        }}
+      />
+    </Section>
+  )
+}
+
+/**
+ * A module's configuration, in a sheet, so the page never reflows. The
+ * database URL is not a module's secret and is left out of every module's
+ * form: it belongs to the database, under Settings.
+ */
+function ModuleSheet({ module, onClose, onSaved }: { module: ModuleRow | null; onClose: () => void; onSaved: () => void }) {
+  const [configDraft, setConfigDraft] = useState<Record<string, unknown>>({})
+  const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
+  const [memoryDraft, setMemoryDraft] = useState('')
+  const [cpusDraft, setCpusDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!module) return
+    setConfigDraft((module.config as Record<string, unknown>) ?? {})
+    setSecretDraft({})
+    setMemoryDraft(module.resources.memory)
+    setCpusDraft(module.resources.cpus)
+    setError(null)
+  }, [module])
+
+  async function save() {
+    if (!module) return
+    setBusy(true)
+    setError(null)
+    try {
+      // Secrets first: a failed config save should not discard typed keys.
+      if (Object.keys(secretDraft).length > 0) {
+        await api.put(`/api/modules/${module.id}/secrets`, { values: secretDraft })
+        setSecretDraft({})
+      }
+      if (module.configSchema) {
+        await api.put(`/api/modules/${module.id}/config`, { config: configDraft })
+      }
+      if (memoryDraft !== module.resources.memory || cpusDraft !== module.resources.cpus) {
+        await api.put(`/api/modules/${module.id}/resources`, { memory: memoryDraft, cpus: cpusDraft })
+      }
+      toast.success(S.moduleConfigSaved)
+      onSaved()
+      onClose()
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : S.errorGeneric)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const secrets = module?.secrets.filter((secret) => secret.name !== 'DATABASE_URL') ?? []
+
+  return (
+    <Sheet open={module !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+        <SheetHeader>
+          <SheetTitle>{module?.title}</SheetTitle>
+          <SheetDescription>{module?.summary}</SheetDescription>
+        </SheetHeader>
+        {module && (
+          <div className="space-y-8 px-4 pb-6">
+            {error && <Note tone="destructive">{error}</Note>}
+            {secrets.length > 0 && <SecretFields secrets={secrets} values={secretDraft} onChange={setSecretDraft} />}
+            {module.configSchema && <SchemaForm schema={module.configSchema} value={configDraft} onChange={setConfigDraft} />}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">{S.moduleResources}</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={S.moduleMemory}>
+                  <Input value={memoryDraft} onChange={(e) => setMemoryDraft(e.target.value)} placeholder={module.resources.defaultMemory} />
+                </Field>
+                <Field label={S.moduleCpus}>
+                  <Input value={cpusDraft} onChange={(e) => setCpusDraft(e.target.value)} placeholder={module.resources.defaultCpus} />
+                </Field>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {S.moduleResourceHint(module.resources.defaultMemory, module.resources.defaultCpus)}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button disabled={busy} onClick={() => void save()}>
+                {busy ? S.workingEllipsis : S.moduleConfigSave}
+              </Button>
+              <Button variant="ghost" onClick={onClose}>
+                {S.cancel}
+              </Button>
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function SettingsSection({
+  onError,
+  onChanged,
+}: {
+  onError: (message: string | null) => void
+  onChanged: () => void
+}) {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void api
+      .get<{ settings: Settings }>('/api/settings')
+      .then((data) => setSettings(data.settings))
+      .catch(() => undefined)
+  }, [])
+
+  if (!settings) return null
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    onError(null)
+    try {
+      await api.put('/api/settings', {
+        bindAddress: settings!.bindAddress,
+        appPort: Number(settings!.appPort),
+        timezone: settings!.timezone,
+        defaultLanguage: settings!.defaultLanguage,
+      })
+      toast.success(S.settingsSaved)
+      onChanged()
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section title={S.settingsTitle} description={S.settingsExplainer}>
+      <form onSubmit={save} className="space-y-5">
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label={S.settingsBindAddress} help={S.settingsBindAddressHint}>
+            <Input value={settings.bindAddress} onChange={(event) => setSettings({ ...settings, bindAddress: event.target.value })} />
+          </Field>
+          <Field label={S.settingsAppPort}>
+            <Input
+              type="number"
+              value={settings.appPort}
+              onChange={(event) => setSettings({ ...settings, appPort: Number(event.target.value) })}
+            />
+          </Field>
+          <Field label={S.settingsTimezone}>
+            <Input value={settings.timezone} onChange={(event) => setSettings({ ...settings, timezone: event.target.value })} />
+          </Field>
+          <Field label={S.settingsLanguage}>
+            <Select value={settings.defaultLanguage} onValueChange={(next) => setSettings({ ...settings, defaultLanguage: next as 'ar' | 'en' })}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ar">العربية</SelectItem>
+                <SelectItem value="en">English</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+        <Button type="submit" disabled={busy}>
+          {busy ? S.workingEllipsis : S.settingsSave}
+        </Button>
+      </form>
+    </Section>
+  )
+}
+
+function RegistrySection({ onError }: { onError: (message: string | null) => void }) {
+  const [configuredAs, setConfiguredAs] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [username, setUsername] = useState('')
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    void api
+      .get<{ configured: boolean; username: string | null }>('/api/registry')
+      .then((data) => {
+        setConfiguredAs(data.username)
+        setEditing(data.username === null)
+      })
+      .catch(() => undefined)
+  }, [])
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    onError(null)
+    try {
+      const result = await api.put<{ detail: string }>('/api/registry', { username, token })
+      setNotice(result.detail)
+      setConfiguredAs(username)
+      setToken('')
+      setEditing(false)
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : S.errorGeneric)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section
+      title={S.registryTitle}
+      description={S.registryExplainer}
+      actions={
+        configuredAs && !editing ? (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            {S.registryChange}
+          </Button>
+        ) : undefined
+      }
+    >
+      {configuredAs && !editing ? (
+        <p className="text-sm">{S.registryConfigured(configuredAs)}</p>
+      ) : (
+        <form onSubmit={save} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={S.registryUsername} htmlFor="reg-user">
+              <Input id="reg-user" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" />
+            </Field>
+            <Field label={S.registryToken} htmlFor="reg-token">
+              <Input id="reg-token" type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" />
+            </Field>
+          </div>
+          {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy || !username || !token}>
+              {busy ? S.workingEllipsis : S.registrySave}
+            </Button>
+            {configuredAs && (
+              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                {S.cancel}
+              </Button>
+            )}
+          </div>
+        </form>
+      )}
+    </Section>
+  )
+}
 
 function formatMB(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
@@ -694,35 +663,20 @@ function ImageRow({ img }: { img: ImageProgress }) {
             : img.state === 'downloading'
               ? S.imgDownloading
               : S.imgWaiting
-  const tone =
-    img.state === 'done'
-      ? 'bg-ok'
-      : img.state === 'stalled' || img.state === 'failed'
-        ? 'bg-bad'
-        : 'bg-brand'
+  const bad = img.state === 'stalled' || img.state === 'failed'
   const pct = img.percent >= 0 ? img.percent : img.state === 'done' ? 100 : 0
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-mono text-slate-700">{label}</span>
-        <span
-          className={
-            img.state === 'stalled' || img.state === 'failed'
-              ? 'text-bad'
-              : img.state === 'done'
-                ? 'text-ok'
-                : 'text-muted-foreground'
-          }
-        >
-          {img.total > 0 && img.state !== 'done'
-            ? `${formatMB(img.downloaded)} / ${formatMB(img.total)} · ${stateText}`
-            : stateText}
+        <span className="font-mono">{label}</span>
+        <span className={bad ? 'text-destructive' : img.state === 'done' ? 'text-success' : 'text-muted-foreground'}>
+          {img.total > 0 && img.state !== 'done' ? `${formatMB(img.downloaded)} / ${formatMB(img.total)} · ${stateText}` : stateText}
         </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+      <div className="h-1 overflow-hidden rounded-full bg-muted">
         <div
-          className={`h-full ${tone} transition-all`}
+          className={cn('h-full transition-all', bad ? 'bg-destructive' : img.state === 'done' ? 'bg-success' : 'bg-foreground')}
           style={{ width: `${img.state === 'stalled' ? 100 : pct}%` }}
         />
       </div>

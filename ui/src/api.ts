@@ -36,37 +36,95 @@ export const api = {
 
 // -- shapes the server sends ------------------------------------------------
 
+export interface ExternalDatabase {
+  host: string
+  port: number
+  server: string | undefined
+  reachable: boolean
+  detail: string
+}
+
 export interface ServiceView {
   id: string
   title: string
   summary: string
   required: boolean
+  /** docker's state, 'absent' with no container, 'external' for a database elsewhere. */
   state: string
   health: string
   status: string
   image: string
+  external?: ExternalDatabase
 }
+
+export type AuditKind = 'security' | 'change' | 'failure' | 'routine'
 
 export interface AuditEntry {
   at: string
   event: string
   detail?: string
   address?: string
+  subject?: string
+  label: string
+  kind: AuditKind
+}
+
+export interface Operator {
+  oid: string
+  upn: string
+  name: string
+}
+
+export type Verdict = 'protected' | 'attention' | 'risk'
+
+export interface Finding {
+  level: 'warn' | 'risk'
+  area: string
+  title: string
+  detail: string
+}
+
+export interface Assessment {
+  verdict: Verdict
+  findings: Finding[]
+  plan: { deployable: true; services: number } | { deployable: false; problems: string[] }
+  application: { running: string | undefined; configured: string; drift: boolean }
+  backups: {
+    level: 'ok' | 'warn' | 'stale' | 'none'
+    detail: string
+    newestAt: string | undefined
+    nextDueAt: string | undefined
+    sets: number
+    offsitePending: number | undefined
+  }
+  offsite: { enabled: boolean; ready: boolean; reason: string | undefined; label: string | undefined }
+  recovery: { passphraseSet: boolean; lastCopiedAt: string | undefined; verifiedAt: string | undefined }
+  signIn: { redirectUri: string; clientSecretSet: boolean; allowed: number }
+  database: {
+    external: boolean
+    host: string
+    port: number
+    reachable: boolean | undefined
+    server: string | undefined
+  }
 }
 
 export interface Overview {
   engineVersion: string
   version: string
   previousVersion: string | null
+  runningVersion: string | null
   bindAddress: string
   appPort: number
+  timezone: string
   modulesOn: string[]
   plan: { deployable: true; services: number } | { deployable: false; problems: string[] }
   services: ServiceView[]
   dockerError?: string
+  assessment: Assessment
+  operator: Operator | null
   audit: AuditEntry[]
 }
-
 
 export interface PreflightCheck {
   id: string
@@ -95,14 +153,6 @@ export interface DeployStatus {
   images?: ImageProgress[]
 }
 
-export interface ModuleInfo {
-  id: string
-  title: string
-  summary: string
-  required: boolean
-  cost: { image: string; memory: string; cpus: string }
-}
-
 export interface BackupSet {
   id: string
   takenAt: string
@@ -116,7 +166,6 @@ export interface BackupSet {
 
 export interface OffsiteConfig {
   enabled: boolean
-  driveId: string
   ready: boolean
   reason: string | null
 }

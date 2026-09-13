@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { S } from '../strings'
-import { cn } from '@/lib/utils'
-import { ErrorNote } from '@/components/status'
-import { DecorIcon } from '@/components/decor-icon'
+import { Note } from '@/components/page'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -31,44 +29,43 @@ export function Login() {
   }, [])
 
   return (
-    <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-background px-6 md:px-8">
-      <div
-        className={cn(
-          'relative flex w-full max-w-sm flex-col justify-between p-6 md:p-8',
-          'dark:bg-[radial-gradient(50%_80%_at_20%_0%,--theme(--color-foreground/.1),transparent)]',
-        )}
-      >
-        <div className="absolute -inset-y-6 -left-px w-px bg-border" />
-        <div className="absolute -inset-y-6 -right-px w-px bg-border" />
-        <div className="absolute -inset-x-6 -top-px h-px bg-border" />
-        <div className="absolute -inset-x-6 -bottom-px h-px bg-border" />
-        <DecorIcon position="top-left" />
-        <DecorIcon position="bottom-right" />
+    <div className="flex min-h-screen w-full bg-background">
+      <aside className="hidden w-[38%] flex-col justify-between bg-sidebar p-10 text-sidebar-foreground lg:flex">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-7 items-center justify-center rounded-md bg-sidebar-primary font-serif text-[15px] font-medium text-sidebar-primary-foreground">
+            Q
+          </span>
+          <span className="text-sm font-medium text-sidebar-primary">{S.productName}</span>
+        </div>
+        <p className="max-w-[28ch] font-serif text-[30px] leading-[1.15] tracking-[-0.01em] text-sidebar-primary">
+          {S.loginTagline}
+        </p>
+        <p className="text-xs text-sidebar-muted">{S.loginFootnote}</p>
+      </aside>
 
-        <div className="w-full max-w-sm animate-in space-y-8">
-          <div className="flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-md bg-primary font-bold text-primary-foreground">
+      <main className="flex flex-1 items-center justify-center px-6">
+        <div className="w-full max-w-sm space-y-8">
+          <div className="flex items-center gap-2.5 lg:hidden">
+            <span className="flex size-7 items-center justify-center rounded-md bg-primary font-serif text-[15px] font-medium text-primary-foreground">
               Q
-            </div>
-            <span className="font-semibold">{S.productName}</span>
+            </span>
+            <span className="text-sm font-medium">{S.productName}</span>
           </div>
-          <div className="flex flex-col space-y-1">
-            <h1 className="font-bold text-2xl tracking-wide">{S.loginTitle}</h1>
-            <p className="text-base text-muted-foreground">{S.loginExplainer}</p>
+          <div className="space-y-2">
+            <h1 className="type-title">{S.loginTitle}</h1>
+            <p className="text-sm text-muted-foreground">{S.loginExplainer}</p>
           </div>
 
-          {error && <ErrorNote>{error}</ErrorNote>}
+          {error && <Note tone="destructive">{error}</Note>}
 
-          <Button className="w-full" asChild>
+          <Button className="w-full" size="lg" asChild>
             <a href="/api/session/entra/start">
               <MicrosoftMark />
               {S.loginSubmit}
             </a>
           </Button>
-
-          <p className="text-muted-foreground text-sm">{S.loginFootnote}</p>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

@@ -1,44 +1,42 @@
-import type { ReactNode } from 'react'
-import { cn } from '@/lib/utils'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
-import { AppHeader } from '@/components/app-header'
+import { useEffect } from 'react'
+import { Outlet, useLocation } from 'react-router'
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/app-sidebar'
-import type { Page } from '@/components/app-shared'
+import { titleFor } from '../routes'
+import { S } from '../strings'
+import type { Operator } from '../api'
 
-/** The efferd app-shell block, holding this engine's pages. */
+/**
+ * The frame: the sidebar and the page. No header bar -- the page's title
+ * lives in the page, as it does in every console worth copying -- except on a
+ * narrow screen, where the sidebar is a drawer and something has to open it.
+ */
 export function AppShell({
-  page,
-  title,
-  onNavigate,
-  onSignOut,
   engineVersion,
-  banner,
-  children,
+  operator,
+  onSignOut,
 }: {
-  page: Page
-  title: string
-  onNavigate: (page: Page) => void
+  engineVersion?: string | undefined
+  operator: Operator | null
   onSignOut: () => void
-  engineVersion?: string
-  banner?: ReactNode
-  children: ReactNode
 }) {
+  const location = useLocation()
+
+  useEffect(() => {
+    document.title = `${titleFor(location.pathname)} · ${S.productName}`
+  }, [location.pathname])
+
   return (
-    <SidebarProvider
-      className={cn('[--app-wrapper-max-width:80rem]', '[--app-header-height:3rem]')}
-    >
-      <AppSidebar page={page} onNavigate={onNavigate} engineVersion={engineVersion} />
-      <SidebarInset className="bg-muted dark:bg-background">
-        <AppHeader title={title} onSignOut={onSignOut} />
-        {banner}
-        <div
-          className={cn(
-            'flex flex-1 flex-col p-4 md:p-6',
-            'mx-auto w-full max-w-(--app-wrapper-max-width)',
-          )}
-        >
-          {children}
+    <SidebarProvider className="[--sidebar-width:15rem] [--sidebar-width-icon:3.25rem]">
+      <AppSidebar engineVersion={engineVersion} operator={operator} onSignOut={onSignOut} />
+      <SidebarInset className="bg-background">
+        <div className="flex h-12 items-center gap-2 border-b border-border px-3 md:hidden">
+          <SidebarTrigger />
+          <span className="text-sm font-medium">{titleFor(location.pathname)}</span>
         </div>
+        <main className="flex flex-1 flex-col px-5 py-8 md:px-10 md:py-10">
+          <Outlet />
+        </main>
       </SidebarInset>
     </SidebarProvider>
   )
