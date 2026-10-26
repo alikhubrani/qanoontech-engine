@@ -34,6 +34,17 @@ export const app = defineModule({
       kind: 'token',
       optional: true,
     },
+    /*
+     * The firm's Microsoft 365, where documents can be kept and opened in Word
+     * (qanoontech-app docs/spec/microsoft-365-files.md). All four or none: the
+     * application treats a partial set as not configured. The certificate is
+     * the private key and its certificate in one PEM, generated on this box and
+     * piped in, so the key never travels.
+     */
+    { name: 'M365_TENANT_ID', title: 'Microsoft 365 tenant id', help: "The firm's Entra tenant (directory) id.", kind: 'token', optional: true },
+    { name: 'M365_CLIENT_ID', title: 'Microsoft 365 app id', help: 'The application (client) id of the QanoonTech app registration in that tenant.', kind: 'token', optional: true },
+    { name: 'M365_CONTAINER_TYPE_ID', title: 'SharePoint Embedded container type', help: 'The container type id the app registration owns.', kind: 'token', optional: true },
+    { name: 'M365_CERT_PEM', title: 'Microsoft 365 certificate', help: 'Private key and certificate, PEM, generated on this box: `cat key.pem cert.pem | engine secrets set M365_CERT_PEM`.', kind: 'text', optional: true },
   ],
   volumes: ['uploads_data', 'logs_data', 'document_fonts'],
   render: (ctx) => {
@@ -87,6 +98,7 @@ export const app = defineModule({
         // answers, which is exactly what the application checks for, so there
         // is no need to read another module's state to decide.
         MAILER_URL: 'http://email:3004',
+        ...m365Environment(ctx.optionalSecret),
       },
       volumes: [
         { volume: 'uploads_data', path: '/app/uploads' },
@@ -129,4 +141,16 @@ export function vapidEnvironment(
     // The contact the push services may use about this sender.
     VAPID_SUBJECT: alertEmail ? `mailto:${alertEmail}` : 'https://qanoontech.com',
   }
+}
+
+/**
+ * The Microsoft 365 variables, when all four are stored; nothing otherwise.
+ * A partial set would only reach the application as "not configured", so it is
+ * not sent at all.
+ */
+export function m365Environment(optionalSecret: (name: string) => string | undefined): Record<string, string> {
+  const names = ['M365_TENANT_ID', 'M365_CLIENT_ID', 'M365_CONTAINER_TYPE_ID', 'M365_CERT_PEM'] as const
+  const values = names.map((name) => optionalSecret(name))
+  if (values.some((value) => !value)) return {}
+  return Object.fromEntries(names.map((name, i) => [name, values[i]!]))
 }

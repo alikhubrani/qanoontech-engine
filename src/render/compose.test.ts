@@ -296,6 +296,30 @@ describe('render', () => {
     expect(mailer.healthcheck.test).toContain('http://localhost:3004/health')
   })
 
+  it('sends the app its Microsoft 365 settings only when all four are stored', () => {
+    const m365 = {
+      M365_TENANT_ID: 'tenant-guid',
+      M365_CLIENT_ID: 'client-guid',
+      M365_CONTAINER_TYPE_ID: 'type-guid',
+      M365_CERT_PEM: '-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----',
+    }
+    const full = renderWith([], {}, { secrets: { ...secrets, ...m365 } })
+    if (!full.ok) throw new Error(full.problems.map((p) => p.message).join('; '))
+    const env = parse(full.yaml).services.app.environment
+    expect(env.M365_TENANT_ID).toBe('tenant-guid')
+    expect(env.M365_CLIENT_ID).toBe('client-guid')
+    expect(env.M365_CONTAINER_TYPE_ID).toBe('type-guid')
+    expect(env.M365_CERT_PEM).toContain('BEGIN CERTIFICATE')
+
+    // Three of four is not configured, so none of them is sent.
+    const { M365_CERT_PEM: _omitted, ...partial } = m365
+    const some = renderWith([], {}, { secrets: { ...secrets, ...partial } })
+    if (!some.ok) throw new Error(some.problems.map((p) => p.message).join('; '))
+    const partialEnv = parse(some.yaml).services.app.environment
+    expect(partialEnv.M365_TENANT_ID).toBeUndefined()
+    expect(partialEnv.M365_CERT_PEM).toBeUndefined()
+  })
+
   it('sends the mailer the Microsoft OAuth settings, and no password', () => {
     const result = renderWith(
       ['email'],
