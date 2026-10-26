@@ -139,6 +139,12 @@ export async function apply(options?: DockerOptions): Promise<CommandResult> {
   return compose(['up', '--detach', '--remove-orphans'], options)
 }
 
+/** Create and start these services only, from the current plan. */
+export async function up(services: readonly string[], options?: DockerOptions): Promise<CommandResult> {
+  checkServices(services)
+  return compose(['up', '--detach', ...services], options)
+}
+
 export async function start(
   services: readonly string[],
   options?: DockerOptions,

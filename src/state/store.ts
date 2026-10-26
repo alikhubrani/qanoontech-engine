@@ -25,6 +25,18 @@ const settingsSchema = z.object({
   appPort: z.number().int().min(1).max(65535).default(8080),
   dbName: z.string().min(1).default('qanoontech'),
   dbUser: z.string().min(1).default('qanoontech'),
+  /**
+   * The PostgreSQL major the `postgres` module runs.
+   *
+   * **Absent means 15**, and that is the safety of it: every deployment made
+   * before this setting existed has a version-15 data directory, and a default
+   * of 17 would have mounted an empty volume under a 17 server on the next
+   * apply -- the application would have started, seeded, and shown a firm an
+   * empty system. A brand-new install is written 17 (`loadState`). Moving an
+   * existing one is `database upgrade 17`: a set, then a restore into a fresh
+   * volume, with the old volume left as the way back.
+   */
+  postgresMajor: z.union([z.literal(15), z.literal(17)]).optional(),
   timezone: z.string().min(1).default('Asia/Riyadh'),
   defaultLanguage: z.enum(['ar', 'en']).default('ar'),
   /**
@@ -206,7 +218,13 @@ const SECRETS_FILE = 'secrets.json'
 
 export function loadState(dir = stateDir()): EngineState {
   const raw = readJsonFile(join(dir, STATE_FILE))
-  return stateSchema.parse(raw ?? {})
+  const state = stateSchema.parse(raw ?? {})
+  // No state at all is a new install, which starts on the current major. A
+  // deployment with state and no `postgresMajor` is on 15 -- see the setting.
+  if (raw == null && state.settings.postgresMajor === undefined) {
+    state.settings = { ...state.settings, postgresMajor: 17 }
+  }
+  return state
 }
 
 /** Replace the whole file. For recovery and first boot; a change goes through `updateState`. */

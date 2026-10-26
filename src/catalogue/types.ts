@@ -102,6 +102,8 @@ export interface DeploymentSettings {
   readonly appPort: number
   readonly dbName: string
   readonly dbUser: string
+  /** PostgreSQL major for the `postgres` module; absent means 15. */
+  readonly postgresMajor?: 15 | 17 | undefined
   readonly timezone: string
   readonly defaultLanguage: 'ar' | 'en'
   readonly logLevel: 'error' | 'warn' | 'info' | 'debug'

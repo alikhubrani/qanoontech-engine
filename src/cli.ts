@@ -609,6 +609,74 @@ database
     console.log('Whatever was written to the external database since the switch is not in the local volume.')
   })
 
+database
+  .command('upgrade <major>')
+  .description('Move the local database to another PostgreSQL major: a set, then a restore into a fresh volume')
+  .option('--yes', 'proceed; the application is down for the length of it')
+  .action(async (majorArg: string, options: { yes?: boolean }) => {
+    const { databaseIsExternal } = await import('./backup/target.js')
+    const { takeBackup, restoreBackup } = await import('./backup/service.js')
+    const { POSTGRES_VOLUME, postgresMajorOf } = await import('./catalogue/modules/postgres.js')
+
+    const major = Number(majorArg)
+    if (major !== 15 && major !== 17) fail('The postgres module runs 15 or 17.')
+    if (databaseIsExternal()) fail('The database is external; its server is upgraded where it lives, not here.')
+    const current = postgresMajorOf(loadState().settings)
+    if (current === major) fail(`The database is already PostgreSQL ${major}.`)
+
+    if (!options.yes) {
+      console.error(`This moves the database from PostgreSQL ${current} to ${major}:`)
+      console.error('  1. stop the application, so nothing is written after the copy')
+      console.error('  2. take a set')
+      console.error(`  3. start PostgreSQL ${major} on its own empty volume (${POSTGRES_VOLUME[major as 15 | 17]})`)
+      console.error('  4. restore the set into it, then bring everything up')
+      console.error(`The ${current} volume (${POSTGRES_VOLUME[current]}) is not touched: \`database upgrade ${current} --yes\` goes back to it as it was.`)
+      console.error('')
+      console.error(`Re-run with --yes to proceed:  database upgrade ${major} --yes`)
+      process.exit(1)
+    }
+
+    const enabled = new Set([...REQUIRED_MODULE_IDS, ...loadState().enabled])
+    const writers = ['app', 'email'].filter((id) => enabled.has(id))
+    const stopped = await docker.stop(writers)
+    if (stopped.code !== 0) fail(`Could not stop ${writers.join(', ')}: ${stopped.stderr.trim()}`)
+    console.log(`Stopped ${writers.join(', ')}.`)
+
+    const set = await takeBackup('manual')
+    if (!set.ok || !set.id) {
+      await docker.start(writers)
+      fail(`No set, so nothing was changed and the application is back up: ${set.detail}`)
+    }
+    console.log(`Set ${set.id} taken.`)
+
+    updateState((state) => ({ ...state, settings: { ...state.settings, postgresMajor: major as 15 | 17 } }))
+    const plan = await requirePlan()
+    writePlan(plan.yaml)
+    const started = await docker.up(['postgres'])
+    if (started.code !== 0) fail(`PostgreSQL ${major} did not start: ${started.stderr.trim()}. Go back with: database upgrade ${current} --yes`)
+
+    // Ready means it answers, not that the container exists.
+    const { databaseTarget } = await import('./backup/target.js')
+    const resolved = databaseTarget()
+    if (!resolved.ok) fail(resolved.detail)
+    let ready = false
+    for (let i = 0; i < 60 && !ready; i++) {
+      ready = (await docker.psqlQuery(resolved.target, 'select 1')).code === 0
+      if (!ready) await new Promise((r) => setTimeout(r, 2000))
+    }
+    if (!ready) fail(`PostgreSQL ${major} never answered. Go back with: database upgrade ${current} --yes`)
+
+    const result = await restoreBackup(set.id)
+    for (const step of result.steps) {
+      console.log(`  ${step.ok ? 'ok  ' : 'FAIL'}  ${step.step}${step.detail ? `  ${step.detail}` : ''}`)
+    }
+    if (!result.ok) fail(`The restore did not finish. Nothing in the ${current} volume changed: database upgrade ${current} --yes goes back.`)
+
+    const up = await docker.apply()
+    if (up.code !== 0) fail(`Restored, but bringing everything up failed: ${up.stderr.trim()}`)
+    console.log(`PostgreSQL ${major}, restored from ${set.id}. The ${current} volume is untouched.`)
+  })
+
 // ---------------------------------------------------------------------------
 // Recovery
 // ---------------------------------------------------------------------------

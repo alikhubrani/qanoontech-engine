@@ -169,9 +169,27 @@ describe('render', () => {
     expect(Object.keys(doc.volumes).sort()).toEqual([
       'document_fonts',
       'logs_data',
+      'postgres17_data',
       'postgres_data',
       'uploads_data',
     ])
+  })
+
+  it('keeps a deployment with no postgresMajor on 15 and its existing volume', () => {
+    // Absent is every deployment made before the setting existed. Reading it
+    // as 17 would mount an empty volume under a 17 server on the next apply.
+    const doc = document()
+    expect(doc.services.postgres.image).toBe('postgres:15-alpine')
+    expect(doc.services.postgres.volumes).toEqual(['postgres_data:/var/lib/postgresql/data'])
+  })
+
+  it('runs 17 on its own volume, leaving the 15 one declared and untouched', () => {
+    const result = renderWith([], {}, { settings: { ...settings, postgresMajor: 17 } })
+    if (!result.ok) throw new Error(result.problems.map((p) => p.message).join('; '))
+    const doc = parse(result.yaml)
+    expect(doc.services.postgres.image).toBe('postgres:17-alpine')
+    expect(doc.services.postgres.volumes).toEqual(['postgres17_data:/var/lib/postgresql/data'])
+    expect(Object.keys(doc.volumes)).toContain('postgres_data')
   })
 
   it('mounts the documents volume read-only wherever it is not the application', () => {

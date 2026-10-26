@@ -94,3 +94,21 @@ describe('the Web Push pair', () => {
     expect(repaired.secrets['VAPID_PUBLIC_KEY']).not.toBe(first.secrets['VAPID_PUBLIC_KEY'])
   })
 })
+
+describe('the PostgreSQL major', () => {
+  it('starts a new install on 17', () => {
+    expect(loadState(dir).settings.postgresMajor).toBe(17)
+  })
+
+  it('leaves an existing deployment with no setting on 15, which is what its volume holds', () => {
+    // Written by an engine from before the setting: it has settings, without the field.
+    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
+    writeFileSync(join(dir, 'state.json'), JSON.stringify({ version: '1.27.1', settings: { dbName: 'qanoontech' } }))
+    expect(loadState(dir).settings.postgresMajor).toBeUndefined()
+  })
+
+  it('keeps 17 once a new install has saved it', () => {
+    updateState((state) => state, dir)
+    expect(loadState(dir).settings.postgresMajor).toBe(17)
+  })
+})
