@@ -368,13 +368,22 @@ describe('the apply gate', () => {
 })
 
 describe('sharing', () => {
-  it('fails the open model, which is the default, and external sharing', async () => {
+  it('fails external sharing, set or left unset, whatever the model', async () => {
     saveSecrets(complete(), dir)
-    const open = microsoft({ registration: () => json(200, { settings: { isSharingRestricted: false } }) })
-    expect(byId(await checkM365(dir, open.fetcher), 'm365-sharing')).toMatchObject({ status: 'fail', detail: expect.stringContaining('open sharing model') })
+    for (const settings of [
+      { isSharingRestricted: true, sharingCapability: 'externalUserSharingOnly' },
+      { isSharingRestricted: true },
+      { isSharingRestricted: false },
+    ]) {
+      const ms = microsoft({ registration: () => json(200, { settings }) })
+      expect(byId(await checkM365(dir, ms.fetcher), 'm365-sharing')).toMatchObject({ status: 'fail', detail: expect.stringContaining('External sharing') })
+    }
+  })
 
-    const external = microsoft({ registration: () => json(200, { settings: { isSharingRestricted: true, sharingCapability: 'externalUserSharingOnly' } }) })
-    expect(byId(await checkM365(dir, external.fetcher), 'm365-sharing')).toMatchObject({ status: 'fail', detail: expect.stringContaining('External sharing') })
+  it('warns, and does not block, on the open model once external sharing is off', async () => {
+    saveSecrets(complete(), dir)
+    const ms = microsoft({ registration: () => json(200, { settings: { isSharingRestricted: false, sharingCapability: 'disabled' } }) })
+    expect(byId(await checkM365(dir, ms.fetcher), 'm365-sharing')).toMatchObject({ status: 'warn', detail: expect.stringContaining('open sharing model') })
   })
 
   it('passes restrictive with sharing off, and asks the registration of this container type', async () => {

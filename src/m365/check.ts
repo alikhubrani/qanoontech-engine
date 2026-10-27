@@ -336,8 +336,8 @@ async function checkDirectory(token: string, fetcher: typeof fetch): Promise<Che
 }
 
 /**
- * Nobody shares from Word (Ali, 2026-10-27): only the application grants
- * access to a firm's files. SharePoint Embedded's restrictive model lets only
+ * Nobody shares from Word, and above all nobody outside the firm (Ali,
+ * 2026-10-27): only the application grants access to a firm's files. SharePoint Embedded's restrictive model lets only
  * a container's Owner and Manager add permissions to files, and the app makes
  * people Writer or Reader, never more -- so with it on, Share in Word, Excel
  * or the browser is refused. The default is the open model, where every
@@ -390,14 +390,29 @@ function checkBilling(classification: string | undefined, expires: string | unde
 function checkSharing(registration: unknown): CheckResult {
   const result = (status: CheckResult['status'], detail: string): CheckResult => ({ id: 'm365-sharing', title: TITLES.sharing, status, detail })
   const settings = (registration as { settings?: { isSharingRestricted?: boolean; sharingCapability?: string } }).settings ?? {}
-  if (settings.isSharingRestricted !== true) {
+  /*
+   * Nothing shared outside the firm is the requirement that blocks (Ali,
+   * 2026-10-27: "as long as people can't share outside of the firm thats all
+   * that matters"). Unset is not off: the registration then follows the
+   * tenant, which may allow guests.
+   */
+  if (settings.sharingCapability !== 'disabled') {
     return result(
       'fail',
-      'The container type uses the open sharing model: anyone who can edit a document can share it from Word. Set isSharingRestricted on the container type (microsoft-365-files.md §10, step 6); it reaches this tenant within 24 hours.',
+      `External sharing is ${settings.sharingCapability ? `allowed (${settings.sharingCapability})` : 'not turned off'}. Set sharingCapability to disabled on the container type registration.`,
     )
   }
-  if (settings.sharingCapability && settings.sharingCapability !== 'disabled') {
-    return result('fail', `External sharing is allowed (${settings.sharingCapability}). Set sharingCapability to disabled.`)
+  /*
+   * Nobody sharing at all is still wanted, and still checked, but a warning:
+   * with external sharing off, the worst a writer can do from Word is share
+   * inside the firm, and the container type's setting takes up to 24 hours to
+   * arrive -- not a reason to hold a deploy.
+   */
+  if (settings.isSharingRestricted !== true) {
+    return result(
+      'warn',
+      'Nothing can be shared outside the firm, but the container type uses the open sharing model: anyone who can edit a document can share it with colleagues from Word. Set isSharingRestricted on the container type (microsoft-365-files.md §10, step 6); it reaches this tenant within 24 hours.',
+    )
   }
   return result('pass', 'Only the application grants access: nobody can share from Word, and nothing is shared outside the firm.')
 }
