@@ -282,7 +282,7 @@ describe('the way back in', () => {
     )
     expect(line.status).toBe('fail')
     expect(line.detail).toContain('Cloudflare Access')
-    expect(line.detail).toContain('scripts/cloudflare/m365-notification-bypass.sh')
+    expect(line.detail).toContain('scripts/cloudflare/m365-notification-bypass.mjs')
   })
 
   it('a 404 means the running application is too old', async () => {

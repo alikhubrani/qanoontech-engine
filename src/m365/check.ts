@@ -407,7 +407,7 @@ async function checkHandshake(base: string, fetcher: typeof fetch): Promise<Chec
     if (location.includes('cloudflareaccess.com')) {
       return result(
         'fail',
-        'Cloudflare Access is in front of the notification path; run scripts/cloudflare/m365-notification-bypass.sh from the app repository.',
+        'Cloudflare Access is in front of the notification path; run `node scripts/cloudflare/m365-notification-bypass.mjs <host>` from the app repository.',
       )
     }
     return result('fail', `${target} answered ${response.status}, a redirect to ${location || 'nowhere'}. Microsoft needs the token back from this address itself.`)
