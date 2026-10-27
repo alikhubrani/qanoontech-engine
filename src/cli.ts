@@ -488,14 +488,32 @@ program
   .command('preflight')
   .description('Check this machine before installing, or after anything changed')
   .action(async () => {
-    const { runPreflight, preflightBlocked } = await import('./preflight/index.js')
+    const { runPreflight, preflightBlocked, checkLine } = await import('./preflight/index.js')
     const checks = await runPreflight()
-    for (const check of checks) {
-      const mark = check.status === 'pass' ? '✓' : check.status === 'warn' ? '!' : '✗'
-      console.log(`${mark} ${check.title.padEnd(22)} ${check.detail}`)
-    }
+    for (const check of checks) console.log(checkLine(check))
     if (preflightBlocked(checks)) {
       console.error('\nBlocked. Fix the ✗ lines before deploying.')
+      process.exit(1)
+    }
+  })
+
+const m365 = program.command('m365').description('The firm’s Microsoft 365, where documents are kept when it is configured')
+
+m365
+  .command('check')
+  .description('Prove the Microsoft 365 configuration works, without applying it')
+  .action(async () => {
+    /*
+     * The checks the apply gate runs, on demand and whatever the fingerprint
+     * says: the way to prove a configuration before deploying it, and to look
+     * again at one already applied when something seems wrong.
+     */
+    const { checkM365 } = await import('./m365/check.js')
+    const { preflightBlocked, checkLine } = await import('./preflight/index.js')
+    const checks = await checkM365()
+    for (const check of checks) console.log(checkLine(check))
+    if (preflightBlocked(checks)) {
+      console.error('\nThis configuration would be refused by apply. Fix the ✗ lines first.')
       process.exit(1)
     }
   })
@@ -1108,6 +1126,23 @@ program
       return generated.secrets
     })
     if (created.length > 0) console.log(`Generated: ${created.join(', ')}. Values are not shown.`)
+
+    /*
+     * Microsoft 365 before anything else, because supplying it is the cutover:
+     * from this apply every new file goes to the firm's tenant. A changed
+     * configuration that does not work is refused here, while nothing has been
+     * pulled or recreated -- the same gate the panel's deploy runs.
+     */
+    const { m365Gate, recordM365Applied } = await import('./m365/check.js')
+    const { checkLine } = await import('./preflight/index.js')
+    const gate = await m365Gate()
+    if (gate.checks) {
+      console.log('Microsoft 365 changed since it was last applied. Checking it…')
+      for (const check of gate.checks) console.log(checkLine(check))
+    }
+    if (!gate.proceed) fail(gate.detail)
+    if (gate.detail) console.log(gate.detail)
+
     const plan = await requirePlan()
     const path = writePlan(plan.yaml)
     console.log(`Wrote ${path}`)
@@ -1189,6 +1224,8 @@ program
 
     console.log('Applying…')
     const applied = await docker.apply({ onOutput: (c) => process.stderr.write(c) })
+    // Only once it is running is it "applied"; a failed apply is checked again.
+    if (applied.code === 0) recordM365Applied(gate.fingerprint)
     process.exit(applied.code === 0 ? 0 : 1)
   })
 

@@ -3,8 +3,9 @@ import { totalmem } from 'node:os'
 import { CATALOGUE } from '../catalogue/index.js'
 import * as docker from '../docker/index.js'
 import { databaseTarget } from '../backup/target.js'
+import { checkM365, m365Configured } from '../m365/check.js'
 import { probeRegistry, storedRegistryAuth } from '../registry.js'
-import { loadState, stateDir } from '../state/store.js'
+import { loadSecrets, loadState, stateDir } from '../state/store.js'
 
 /**
  * Preflight: conformance checks run before an install, re-runnable after.
@@ -245,7 +246,22 @@ export async function runPreflight(dir = stateDir()): Promise<CheckResult[]> {
     detail: backups.detail,
   })
 
+  /*
+   * Microsoft 365, when any part of it is configured. Its lines are the same
+   * ones the apply gate refuses on, so a failure is seen here first, on the
+   * list someone reads before deploying, and not only as a refused deploy.
+   */
+  if (m365Configured(loadSecrets(dir)) !== 'none') {
+    results.push(...(await checkM365(dir)))
+  }
+
   return results
+}
+
+/** One check as a line of text: the preflight command, the apply gate, the deploy log. */
+export function checkLine(check: CheckResult): string {
+  const mark = check.status === 'pass' ? '✓' : check.status === 'warn' ? '!' : '✗'
+  return `${mark} ${check.title.padEnd(22)} ${check.detail}`
 }
 
 /**

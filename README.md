@@ -83,6 +83,7 @@ engine version <version>           choose the QanoonTech version
 engine secrets init                generate any missing secret
 engine render --stdout             render the compose file
 engine apply                       render, check, pull, bring it up
+engine m365 check                  prove a Microsoft 365 configuration before applying it
 engine logs <service>              recent output from one service
 ```
 

@@ -285,6 +285,67 @@ describe('the deploy job', () => {
   })
 })
 
+describe('the deploy job and Microsoft 365', () => {
+  const M365 = {
+    M365_TENANT_ID: 'tenant',
+    M365_CLIENT_ID: 'client',
+    M365_CONTAINER_TYPE_ID: 'type',
+    M365_CERT_PEM: 'not a real certificate',
+  }
+
+  it('a partial configuration stops the deploy before anything is pulled', async () => {
+    setVersion('1.0.2', dir)
+    saveSecrets({ M365_TENANT_ID: 'tenant', M365_CLIENT_ID: 'client' }, dir)
+    const jobs = new JobRunner(dir)
+    jobs.startDeploy()
+    await vi.waitFor(() => expect(jobs.isRunning()).toBe(false))
+    expect(jobs.current()!.ok).toBe(false)
+    expect(jobs.current()!.log).toContain('M365_CONTAINER_TYPE_ID, M365_CERT_PEM missing')
+    expect(vi.mocked(pullImages)).not.toHaveBeenCalled()
+    expect(vi.mocked(docker.apply)).not.toHaveBeenCalled()
+  })
+
+  it('a changed configuration that fails its checks stops the deploy, with the lines in the log', async () => {
+    setVersion('1.0.2', dir)
+    saveSecrets(M365, dir)
+    const jobs = new JobRunner(dir)
+    jobs.startDeploy()
+    await vi.waitFor(() => expect(jobs.isRunning()).toBe(false))
+    expect(jobs.current()!.ok).toBe(false)
+    expect(jobs.current()!.log).toContain('✗ M365 certificate')
+    expect(vi.mocked(pullImages)).not.toHaveBeenCalled()
+  })
+
+  it('an unchanged configuration is not checked again', async () => {
+    setVersion('1.0.2', dir)
+    saveSecrets(M365, dir)
+    const { m365Fingerprint } = await import('../m365/check.js')
+    saveState({ ...loadState(dir), m365AppliedFingerprint: m365Fingerprint(loadSecrets(dir), '') }, dir)
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    try {
+      const jobs = new JobRunner(dir)
+      jobs.startDeploy()
+      await vi.waitFor(() => expect(jobs.isRunning()).toBe(false))
+      expect(jobs.current()!.ok).toBe(true)
+      expect(jobs.current()!.log).toContain('not checked again')
+      expect(fetcher).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a deploy with none configured forgets what was applied before', async () => {
+    setVersion('1.0.2', dir)
+    saveState({ ...loadState(dir), m365AppliedFingerprint: 'earlier' }, dir)
+    const jobs = new JobRunner(dir)
+    jobs.startDeploy()
+    await vi.waitFor(() => expect(jobs.isRunning()).toBe(false))
+    expect(jobs.current()!.ok).toBe(true)
+    expect(loadState(dir).m365AppliedFingerprint).toBeUndefined()
+  })
+})
+
 describe('self-update arguments', () => {
   it('constructs the helper exactly, with quoting', async () => {
     const original = await vi.importActual<typeof import('../docker/index.js')>('../docker/index.js')

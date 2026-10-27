@@ -149,8 +149,13 @@ export function vapidEnvironment(
  * not sent at all.
  */
 export function m365Environment(optionalSecret: (name: string) => string | undefined): Record<string, string> {
-  const names = ['M365_TENANT_ID', 'M365_CLIENT_ID', 'M365_CONTAINER_TYPE_ID', 'M365_CERT_PEM'] as const
-  const values = names.map((name) => optionalSecret(name))
+  const values = M365_SECRETS.map((name) => optionalSecret(name))
   if (values.some((value) => !value)) return {}
-  return Object.fromEntries(names.map((name, i) => [name, values[i]!]))
+  return Object.fromEntries(M365_SECRETS.map((name, i) => [name, values[i]!]))
 }
+
+/**
+ * The four names, once. The renderer sends them and `src/m365/check.ts` gates
+ * them, and the two must agree on what "all four" means.
+ */
+export const M365_SECRETS = ['M365_TENANT_ID', 'M365_CLIENT_ID', 'M365_CONTAINER_TYPE_ID', 'M365_CERT_PEM'] as const

@@ -1,7 +1,9 @@
 import { listBackups, takeBackup } from '../backup/service.js'
 import * as docker from '../docker/index.js'
 import { pullImages, type ImageProgress } from '../docker/pull.js'
+import { m365Gate, recordM365Applied } from '../m365/check.js'
 import { buildPlan, writePlan } from '../plan.js'
+import { checkLine } from '../preflight/index.js'
 import { REGISTRY, storedRegistryAuth } from '../registry.js'
 import {
   ensureGeneratedSecrets,
@@ -28,7 +30,7 @@ export interface DeployJob {
   ok?: boolean
   log: string
   /** What the deploy is doing now, for a one-line status. */
-  step: 'render' | 'validate' | 'pull' | 'backup' | 'apply' | 'done'
+  step: 'm365' | 'render' | 'validate' | 'pull' | 'backup' | 'apply' | 'done'
   /** The version being deployed, so the UI can say "running X, deploying Y". */
   targetVersion: string
   /** Per-image download state during the pull step. */
@@ -86,6 +88,22 @@ export class JobRunner {
         this.append(job, `Generated: ${created.join(', ')}. Values are not shown.\n`)
       }
 
+      // Microsoft 365 first: supplying it is the cutover, so a changed
+      // configuration that does not work stops here, before anything is
+      // pulled. An unchanged one is not asked again -- see `m365Gate`.
+      job.step = 'm365'
+      const gate = await m365Gate(this.dir)
+      if (gate.checks) {
+        this.append(job, '── Microsoft 365 changed; checking it ──\n')
+        this.append(job, gate.checks.map((check) => `${checkLine(check)}\n`).join(''))
+      }
+      if (gate.detail) this.append(job, `${gate.detail}\n\n`)
+      if (!gate.proceed) {
+        this.finish(job, false)
+        return
+      }
+
+      job.step = 'render'
       this.append(job, '── Rendering ──\n')
       const plan = await buildPlan(this.dir)
       if (!plan.ok) {
@@ -167,6 +185,7 @@ export class JobRunner {
       job.step = 'apply'
       this.append(job, '\n── Applying ──\n')
       const applied = await docker.apply({ composeFile: path, onOutput })
+      if (applied.code === 0) recordM365Applied(gate.fingerprint, this.dir)
       this.finish(job, applied.code === 0)
     } catch (error) {
       this.append(job, `\n${error instanceof Error ? error.message : String(error)}\n`)

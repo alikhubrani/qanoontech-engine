@@ -192,6 +192,16 @@ const stateSchema = z.object({
   version: z.string().default('latest'),
   /** What it was on before the last change, so a rollback has somewhere to go. */
   previousVersion: z.string().optional(),
+  /**
+   * The Microsoft 365 configuration the last successful apply carried: a
+   * SHA-256 of the four `M365_*` secrets and `publicUrl`, never the values.
+   * An apply checks Microsoft 365 only when this differs, so a configuration
+   * proven once is not re-proven on every routine update (`src/m365/check.ts`).
+   * Absent means none was applied. Beside `previousVersion` rather than in
+   * `settings`, because it is a record of what a deploy did, not something an
+   * operator sets -- and the panel's settings endpoint returns `settings` whole.
+   */
+  m365AppliedFingerprint: z.string().optional(),
   // The default is parsed rather than written out, so the field defaults above
   // stay the single place each one is stated.
   settings: settingsSchema.default(() => settingsSchema.parse({})),
