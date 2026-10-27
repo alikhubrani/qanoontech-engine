@@ -72,7 +72,7 @@ function complete(overrides: Record<string, string> = {}): Record<string, string
   }
 }
 
-type Kind = 'token' | 'containers' | 'users' | 'handshake'
+type Kind = 'token' | 'containers' | 'users' | 'registration' | 'handshake'
 type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>
 
 const json = (status: number, body: unknown) =>
@@ -84,6 +84,7 @@ function microsoft(overrides: Partial<Record<Kind, Handler>> = {}) {
     token: () => json(200, { access_token: 'graph-token', expires_in: 3599 }),
     containers: () => json(200, { value: [] }),
     users: () => json(200, { value: [{ id: 'someone' }] }),
+    registration: () => json(200, { settings: { isSharingRestricted: true, sharingCapability: 'disabled' } }),
     handshake: (url) => new Response(url.searchParams.get('validationToken'), { status: 200 }),
     ...overrides,
   }
@@ -97,7 +98,9 @@ function microsoft(overrides: Partial<Record<Kind, Handler>> = {}) {
           ? 'containers'
           : url.pathname.endsWith('/v1.0/users')
             ? 'users'
-            : 'handshake'
+            : url.pathname.includes('/storage/fileStorage/containerTypeRegistrations/')
+              ? 'registration'
+              : 'handshake'
     calls.push({ kind, url, init })
     return handlers[kind](url, init)
   })
@@ -138,10 +141,11 @@ describe('the checks', () => {
       ['m365-token', 'pass'],
       ['m365-graph', 'pass'],
       ['m365-directory', 'pass'],
+      ['m365-sharing', 'pass'],
       ['m365-address', 'pass'],
       ['m365-notifications', 'pass'],
     ])
-    expect(ms.kinds()).toEqual(['token', 'containers', 'users', 'handshake'])
+    expect(ms.kinds()).toEqual(['token', 'containers', 'users', 'registration', 'handshake'])
   })
 
   it('a partial set fails by name, and asks Microsoft nothing it cannot answer', async () => {
@@ -234,6 +238,7 @@ describe('the checks', () => {
     expect(byId(checks, 'm365-directory').detail).toContain('Not checked')
     expect(ms.kinds()).not.toContain('containers')
     expect(ms.kinds()).not.toContain('users')
+    expect(ms.kinds()).not.toContain('registration')
     // The address is not Entra's business, so it is still asked.
     expect(byId(checks, 'm365-notifications').status).toBe('pass')
   })
@@ -307,7 +312,7 @@ describe('the apply gate', () => {
     const first = microsoft()
     const changed = await m365Gate(dir, first.fetcher)
     expect(changed.proceed).toBe(true)
-    expect(changed.checks).toHaveLength(7)
+    expect(changed.checks).toHaveLength(8)
     expect(first.fetcher).toHaveBeenCalled()
     recordM365Applied(changed.fingerprint, dir)
     expect(loadState(dir).m365AppliedFingerprint).toBe(changed.fingerprint)
@@ -358,5 +363,24 @@ describe('the apply gate', () => {
     expect(ms.fetcher).not.toHaveBeenCalled()
     recordM365Applied(gate.fingerprint, dir)
     expect(loadState(dir).m365AppliedFingerprint).toBeUndefined()
+  })
+})
+
+describe('sharing', () => {
+  it('fails the open model, which is the default, and external sharing', async () => {
+    saveSecrets(complete(), dir)
+    const open = microsoft({ registration: () => json(200, { settings: { isSharingRestricted: false } }) })
+    expect(byId(await checkM365(dir, open.fetcher), 'm365-sharing')).toMatchObject({ status: 'fail', detail: expect.stringContaining('open sharing model') })
+
+    const external = microsoft({ registration: () => json(200, { settings: { isSharingRestricted: true, sharingCapability: 'externalUserSharingOnly' } }) })
+    expect(byId(await checkM365(dir, external.fetcher), 'm365-sharing')).toMatchObject({ status: 'fail', detail: expect.stringContaining('External sharing') })
+  })
+
+  it('passes restrictive with sharing off, and asks the registration of this container type', async () => {
+    saveSecrets(complete(), dir)
+    const ms = microsoft()
+    expect(byId(await checkM365(dir, ms.fetcher), 'm365-sharing').status).toBe('pass')
+    const asked = ms.calls.find((c) => c.kind === 'registration')!
+    expect(asked.url.pathname).toContain(`/containerTypeRegistrations/${complete().M365_CONTAINER_TYPE_ID}`)
   })
 })

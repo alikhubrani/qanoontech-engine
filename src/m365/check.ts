@@ -29,6 +29,7 @@ const TITLES = {
   token: 'M365 sign-in',
   graph: 'M365 file storage',
   directory: 'M365 directory',
+  sharing: 'M365 sharing',
   address: 'M365 public address',
   notifications: 'M365 notifications',
 } as const
@@ -114,9 +115,11 @@ export async function checkM365(dir = stateDir(), fetcher: typeof fetch = fetch)
   if (token) {
     results.push(await checkContainers(secrets['M365_CONTAINER_TYPE_ID']!.trim(), token, fetcher))
     results.push(await checkDirectory(token, fetcher))
+    results.push(await checkSharing(secrets['M365_CONTAINER_TYPE_ID']!.trim(), token, fetcher))
   } else {
     results.push(notRun('m365-graph', TITLES.graph, 'there is no token to ask Graph with'))
     results.push(notRun('m365-directory', TITLES.directory, 'there is no token to ask Graph with'))
+    results.push(notRun('m365-sharing', TITLES.sharing, 'there is no token to ask Graph with'))
   }
 
   // Independent of the credentials: whether Microsoft can reach the box at all.
@@ -275,7 +278,7 @@ async function graphGet(
   url: string,
   token: string,
   fetcher: typeof fetch,
-): Promise<{ status: number; code: string; text: string } | { error: string }> {
+): Promise<{ status: number; code: string; text: string; body: unknown } | { error: string }> {
   let response: Response
   try {
     response = await fetcher(url, {
@@ -290,6 +293,7 @@ async function graphGet(
     status: response.status,
     code: body.error?.code ?? '',
     text: (body.error?.message ?? '').split(/\r?\n/)[0]!.slice(0, 200),
+    body,
   }
 }
 
@@ -327,6 +331,37 @@ async function checkDirectory(token: string, fetcher: typeof fetch): Promise<Che
     return result('fail', `${graphAnswered(answer)} User.Read.All has no admin consent; the application needs it to link people by email.`)
   }
   return result('fail', graphAnswered(answer))
+}
+
+/**
+ * Nobody shares from Word (Ali, 2026-10-27): only the application grants
+ * access to a firm's files. SharePoint Embedded's restrictive model lets only
+ * a container's Owner and Manager add permissions to files, and the app makes
+ * people Writer or Reader, never more -- so with it on, Share in Word, Excel
+ * or the browser is refused. The default is the open model, where every
+ * writer can share, so an unset container type is a fail, not a warning.
+ * External sharing must be off as well.
+ *
+ * Read from the registration in the firm's tenant, which is what the app's
+ * own credentials can see. A change to the container type reaches it within
+ * Microsoft's 24 hours; until then this says "open", which is the truth.
+ */
+async function checkSharing(containerTypeId: string, token: string, fetcher: typeof fetch): Promise<CheckResult> {
+  const answer = await graphGet(`${GRAPH}/storage/fileStorage/containerTypeRegistrations/${encodeURIComponent(containerTypeId)}?$select=settings`, token, fetcher)
+  const result = (status: CheckResult['status'], detail: string): CheckResult => ({ id: 'm365-sharing', title: TITLES.sharing, status, detail })
+  if ('error' in answer) return result('fail', `graph.microsoft.com could not be reached from this box: ${answer.error}`)
+  if (answer.status !== 200) return result('fail', `${graphAnswered(answer)} The container type registration could not be read.`)
+  const settings = (answer.body as { settings?: { isSharingRestricted?: boolean; sharingCapability?: string } }).settings ?? {}
+  if (settings.isSharingRestricted !== true) {
+    return result(
+      'fail',
+      'The container type uses the open sharing model: anyone who can edit a document can share it from Word. Set isSharingRestricted on the container type (microsoft-365-files.md §10, step 6); it reaches this tenant within 24 hours.',
+    )
+  }
+  if (settings.sharingCapability && settings.sharingCapability !== 'disabled') {
+    return result('fail', `External sharing is allowed (${settings.sharingCapability}). Set sharingCapability to disabled.`)
+  }
+  return result('pass', 'Only the application grants access: nobody can share from Word, and nothing is shared outside the firm.')
 }
 
 // -- the way back in ----------------------------------------------------------
