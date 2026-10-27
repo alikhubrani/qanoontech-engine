@@ -84,7 +84,7 @@ function microsoft(overrides: Partial<Record<Kind, Handler>> = {}) {
     token: () => json(200, { access_token: 'graph-token', expires_in: 3599 }),
     containers: () => json(200, { value: [] }),
     users: () => json(200, { value: [{ id: 'someone' }] }),
-    registration: () => json(200, { settings: { isSharingRestricted: true, sharingCapability: 'disabled' } }),
+    registration: () => json(200, { billingClassification: 'standard', settings: { isSharingRestricted: true, sharingCapability: 'disabled' } }),
     handshake: (url) => new Response(url.searchParams.get('validationToken'), { status: 200 }),
     ...overrides,
   }
@@ -142,6 +142,7 @@ describe('the checks', () => {
       ['m365-graph', 'pass'],
       ['m365-directory', 'pass'],
       ['m365-sharing', 'pass'],
+      ['m365-billing', 'pass'],
       ['m365-address', 'pass'],
       ['m365-notifications', 'pass'],
     ])
@@ -312,7 +313,7 @@ describe('the apply gate', () => {
     const first = microsoft()
     const changed = await m365Gate(dir, first.fetcher)
     expect(changed.proceed).toBe(true)
-    expect(changed.checks).toHaveLength(8)
+    expect(changed.checks).toHaveLength(9)
     expect(first.fetcher).toHaveBeenCalled()
     recordM365Applied(changed.fingerprint, dir)
     expect(loadState(dir).m365AppliedFingerprint).toBe(changed.fingerprint)
@@ -382,5 +383,17 @@ describe('sharing', () => {
     expect(byId(await checkM365(dir, ms.fetcher), 'm365-sharing').status).toBe('pass')
     const asked = ms.calls.find((c) => c.kind === 'registration')!
     expect(asked.url.pathname).toContain(`/containerTypeRegistrations/${complete().M365_CONTAINER_TYPE_ID}`)
+  })
+})
+
+describe('the container type', () => {
+  it('warns on a trial, which holds five matters and expires, and does not block', async () => {
+    saveSecrets(complete(), dir)
+    const ms = microsoft({
+      registration: () => json(200, { billingClassification: 'trial', expirationDateTime: '2026-11-26T03:10:11Z', settings: { isSharingRestricted: true, sharingCapability: 'disabled' } }),
+    })
+    const check = byId(await checkM365(dir, ms.fetcher), 'm365-billing')
+    expect(check.status).toBe('warn')
+    expect(check.detail).toContain('2026-11-26')
   })
 })

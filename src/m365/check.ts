@@ -30,6 +30,7 @@ const TITLES = {
   graph: 'M365 file storage',
   directory: 'M365 directory',
   sharing: 'M365 sharing',
+  billing: 'M365 container type',
   address: 'M365 public address',
   notifications: 'M365 notifications',
 } as const
@@ -115,11 +116,12 @@ export async function checkM365(dir = stateDir(), fetcher: typeof fetch = fetch)
   if (token) {
     results.push(await checkContainers(secrets['M365_CONTAINER_TYPE_ID']!.trim(), token, fetcher))
     results.push(await checkDirectory(token, fetcher))
-    results.push(await checkSharing(secrets['M365_CONTAINER_TYPE_ID']!.trim(), token, fetcher))
+    results.push(...(await checkRegistration(secrets['M365_CONTAINER_TYPE_ID']!.trim(), token, fetcher)))
   } else {
     results.push(notRun('m365-graph', TITLES.graph, 'there is no token to ask Graph with'))
     results.push(notRun('m365-directory', TITLES.directory, 'there is no token to ask Graph with'))
     results.push(notRun('m365-sharing', TITLES.sharing, 'there is no token to ask Graph with'))
+    results.push(notRun('m365-billing', TITLES.billing, 'there is no token to ask Graph with'))
   }
 
   // Independent of the credentials: whether Microsoft can reach the box at all.
@@ -346,12 +348,48 @@ async function checkDirectory(token: string, fetcher: typeof fetch): Promise<Che
  * own credentials can see. A change to the container type reaches it within
  * Microsoft's 24 hours; until then this says "open", which is the truth.
  */
-async function checkSharing(containerTypeId: string, token: string, fetcher: typeof fetch): Promise<CheckResult> {
-  const answer = await graphGet(`${GRAPH}/storage/fileStorage/containerTypeRegistrations/${encodeURIComponent(containerTypeId)}?$select=settings`, token, fetcher)
+async function checkRegistration(containerTypeId: string, token: string, fetcher: typeof fetch): Promise<CheckResult[]> {
+  const answer = await graphGet(
+    `${GRAPH}/storage/fileStorage/containerTypeRegistrations/${encodeURIComponent(containerTypeId)}?$select=settings,billingClassification,expirationDateTime`,
+    token,
+    fetcher,
+  )
+  if ('error' in answer) {
+    const detail = `graph.microsoft.com could not be reached from this box: ${answer.error}`
+    return [
+      { id: 'm365-sharing', title: TITLES.sharing, status: 'fail', detail },
+      { id: 'm365-billing', title: TITLES.billing, status: 'fail', detail },
+    ]
+  }
+  if (answer.status !== 200) {
+    const detail = `${graphAnswered(answer)} The container type registration could not be read.`
+    return [
+      { id: 'm365-sharing', title: TITLES.sharing, status: 'fail', detail },
+      { id: 'm365-billing', title: TITLES.billing, status: 'fail', detail },
+    ]
+  }
+  const body = answer.body as { billingClassification?: string; expirationDateTime?: string }
+  return [checkSharing(answer.body), checkBilling(body.billingClassification, body.expirationDateTime)]
+}
+
+/**
+ * A trial container type holds five containers of 200 MB and expires in 30
+ * days, and cannot be converted -- staging met the five on 2026-10-27, when
+ * the sixth matter's first upload was refused. Right for a test tenant, wrong
+ * for a firm, whose container type is created standard (microsoft-365-files.md
+ * §10, step 6). A warning rather than a fail, so staging still deploys.
+ */
+function checkBilling(classification: string | undefined, expires: string | undefined): CheckResult {
+  const result = (status: CheckResult['status'], detail: string): CheckResult => ({ id: 'm365-billing', title: TITLES.billing, status, detail })
+  if (classification === 'trial') {
+    return result('warn', `A trial container type: at most five cases and clients can hold files, and it expires${expires ? ` ${expires.slice(0, 10)}` : ''}. A firm needs a standard one.`)
+  }
+  return result('pass', `Billing: ${classification ?? 'unknown'}.`)
+}
+
+function checkSharing(registration: unknown): CheckResult {
   const result = (status: CheckResult['status'], detail: string): CheckResult => ({ id: 'm365-sharing', title: TITLES.sharing, status, detail })
-  if ('error' in answer) return result('fail', `graph.microsoft.com could not be reached from this box: ${answer.error}`)
-  if (answer.status !== 200) return result('fail', `${graphAnswered(answer)} The container type registration could not be read.`)
-  const settings = (answer.body as { settings?: { isSharingRestricted?: boolean; sharingCapability?: string } }).settings ?? {}
+  const settings = (registration as { settings?: { isSharingRestricted?: boolean; sharingCapability?: string } }).settings ?? {}
   if (settings.isSharingRestricted !== true) {
     return result(
       'fail',
